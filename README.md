@@ -66,7 +66,7 @@ Take out the USB stick and log in with your user on the text screen.
 ### 2. Run the SkorneX setup
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Skorneh/LinuxSetup/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Skorneh/SkorneX/main/bootstrap.sh | bash
 ```
 
 It asks three things up front:
@@ -91,7 +91,7 @@ went missing.
 
 ```bash
 sudo pacman -S --needed git
-git clone https://github.com/Skorneh/LinuxSetup.git ~/LinuxSetup
+git clone https://github.com/Skorneh/SkorneX.git ~/LinuxSetup
 ~/LinuxSetup/install.sh
 ~/LinuxSetup/gaming.sh      # optional
 sudo reboot
@@ -315,7 +315,7 @@ the host can shut it down cleanly.
 
 ## Reporting problems
 
-Open an [issue](https://github.com/Skorneh/LinuxSetup/issues/new/choose) and
+Open an [issue](https://github.com/Skorneh/SkorneX/issues/new/choose) and
 include:
 
 - What you did, what you expected, and what happened instead.

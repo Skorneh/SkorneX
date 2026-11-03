@@ -86,6 +86,12 @@ for pkg in "${old[@]}"; do
     echo "remove:$pkg" >> "$once_file"
 done
 
+# The repo was renamed from LinuxSetup to SkorneX on GitHub. The old address
+# still forwards, but point existing installs at the new one.
+if git -C "$REPO_DIR" remote get-url origin 2>/dev/null | grep -q 'Skorneh/LinuxSetup'; then
+    git -C "$REPO_DIR" remote set-url origin https://github.com/Skorneh/SkorneX.git
+fi
+
 # --- 4. Dotfiles ---
 # Every folder in dotfiles/ is a stow package whose contents mirror $HOME.
 # Existing files that would block a symlink are moved to ~/.dotfiles-backup.

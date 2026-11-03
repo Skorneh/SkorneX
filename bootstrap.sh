@@ -2,7 +2,7 @@
 # One command to set up SkorneX on a fresh Arch install. Log in as your user
 # on the text console and run:
 #
-#   curl -fsSL https://raw.githubusercontent.com/Skorneh/LinuxSetup/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Skorneh/SkorneX/main/bootstrap.sh | bash
 #
 # It asks its questions first (gaming, settings modules, your password), then runs
 # without needing you: installs git, downloads this repo to ~/LinuxSetup, runs
@@ -11,7 +11,7 @@ set -euo pipefail
 
 # Everything is inside main, so a half-downloaded script never runs.
 main() {
-    local repo=https://github.com/Skorneh/LinuxSetup.git
+    local repo=https://github.com/Skorneh/SkorneX.git
     local dir="$HOME/LinuxSetup"
     local reply gaming=0 modules=""
 

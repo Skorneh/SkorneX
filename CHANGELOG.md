@@ -3,6 +3,9 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.3.2
+- The project is now called SkorneX on GitHub too: github.com/Skorneh/SkorneX.
+
 ## 0.3.1
 - Power settings on laptops: separate lock, screen off and sleep times, and
   lid action, for plugged in and on battery. It switches by itself when you
