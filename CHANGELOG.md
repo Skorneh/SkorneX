@@ -3,6 +3,10 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.3.3
+- The README shows each tool in action: search, the taskbar panels, Run, the
+  desktop, Task Manager, Paint, Snipping Tool and Settings.
+
 ## 0.3.2
 - The project is now called SkorneX on GitHub too: github.com/Skorneh/SkorneX.
 

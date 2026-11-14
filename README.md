@@ -154,6 +154,10 @@ you can check it works. Games will be slow without a real graphics card.
   bottom-right corner. Click outside it or press Esc to close it. Scroll on the
   volume icon to change the volume.
 
+| Search (Win key) | Network and clock panels | Run (Win+R) |
+|---|---|---|
+| ![Search: press Win, type "paint", open Paint](docs/demos/search.gif) | ![The network panel, then the calendar](docs/demos/taskbar.gif) | ![Win+R, "downloads" opens Files](docs/demos/run.gif) |
+
 ### The desktop (SkorneXDesktop)
 
 The Recycle Bin, plus everything in your `~/Desktop` folder. Drag icons
@@ -163,6 +167,8 @@ folder, New text document and Settings. Drag a box on the empty desktop to
 select several icons (Ctrl+click adds or removes one), then drag them
 together, or onto the Recycle Bin to delete them. Dragging the Recycle Bin
 itself just moves it. Add app shortcuts from a taskbar button's right-click menu.
+
+![New folder, rename it, select two icons with a box, drop them on the Recycle Bin](docs/demos/desktop.gif)
 
 ### Apps
 
@@ -177,6 +183,10 @@ itself just moves it. Add app shortcuts from a taskbar button's right-click menu
 | **Firefox** | With Pocket, sponsored content, telemetry and the AI sidebar turned off. Check `about:policies` to see the settings. |
 
 Older X11 apps (Steam, Wine games) run through Xwayland, which is included.
+
+| Task Manager | Paint | Snipping Tool |
+|---|---|---|
+| ![Ctrl+Shift+Esc, select Notepad, End task](docs/demos/taskmgr.gif) | ![Print Screen a region, paste it in Paint, circle something](docs/demos/paint.gif) | ![New, drag a rectangle, the snip shows with Save, Copy, Edit in Paint](docs/demos/snip.gif) |
 
 ## Settings
 
@@ -200,6 +210,10 @@ Its last page, **Add or remove settings**, turns modules on and off. From
 Terminal it's `skornex-module` (list), `skornex-module add sound mouse`, or
 `skornex-module remove display`. Removing a module keeps the settings it
 already made.
+
+| Every page | Personalize |
+|---|---|
+| ![Right-click the desktop > Settings, then Display, Power, Mouse, Keyboard shortcuts, Personalize and Updates](docs/demos/settings.gif) | ![Settings > Personalize: Midnight, Plum, then back to Graphite](docs/demos/personalize.gif) |
 
 ## Shortcuts
 
