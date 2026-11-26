@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""SkorneX Default apps: which app opens web links, folders, text files,
+pictures, videos, music, PDFs and zip files, like Windows' Default apps.
+
+    skornex-defaults     open it on its own (or search "Default apps")
+
+It's also a page in Settings (skornex-settings). Choices are saved in
+~/.config/mimeapps.list, the standard place every Linux app reads.
+"""
+
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+TITLE = "Default apps"
+ICON = "preferences-desktop-default-applications"
+APP_ID = "dev.skornex.Defaults"
+
+# (what, the file types it covers). The first type decides what's shown as
+# current; choosing an app sets it for all of them.
+KINDS = [
+    ("Web browser", ["x-scheme-handler/https", "x-scheme-handler/http", "text/html"]),
+    ("Email", ["x-scheme-handler/mailto"]),
+    ("Folders", ["inode/directory"]),
+    ("Text files", ["text/plain", "text/markdown", "application/json", "text/x-log"]),
+    ("Pictures", ["image/png", "image/jpeg", "image/gif", "image/bmp", "image/webp"]),
+    ("Videos", ["video/mp4", "video/x-matroska", "video/webm", "video/x-msvideo",
+                "video/quicktime", "video/mpeg"]),
+    ("Music", ["audio/mpeg", "audio/flac", "audio/ogg", "audio/x-wav", "audio/mp4", "audio/aac"]),
+    ("PDFs", ["application/pdf"]),
+    ("Zip files", ["application/zip"]),
+]
+
+
+def apps_for(types):
+    """Apps that can open any of these types, by name."""
+    found = {}
+    for t in types:
+        for info in Gio.AppInfo.get_all_for_type(t):
+            if info.should_show():
+                found.setdefault(info.get_id(), info)
+    return sorted(found.values(), key=lambda a: a.get_display_name().lower())
+
+
+class Page(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_border_width(24)
+        title = Gtk.Label(xalign=0)
+        title.set_markup(f"<span size='x-large' weight='bold'>{TITLE}</span>")
+        self.pack_start(title, False, False, 0)
+        grid = Gtk.Grid(row_spacing=10, column_spacing=24)
+        self.pack_start(grid, False, False, 0)
+        for row, (name, types) in enumerate(KINDS):
+            grid.attach(Gtk.Label(label=name, xalign=0), 0, row, 1, 1)
+            combo = Gtk.ComboBox(model=Gtk.ListStore(str, Gio.Icon, str))
+            icon = Gtk.CellRendererPixbuf()
+            text = Gtk.CellRendererText()
+            combo.pack_start(icon, False)
+            combo.pack_start(text, True)
+            combo.add_attribute(icon, "gicon", 1)
+            combo.add_attribute(text, "text", 2)
+            combo.set_id_column(0)
+            apps = apps_for(types)
+            for info in apps:
+                combo.get_model().append([info.get_id(), info.get_icon(), info.get_display_name()])
+            current = Gio.AppInfo.get_default_for_type(types[0], False)
+            if current and not combo.set_active_id(current.get_id()):
+                combo.get_model().append([current.get_id(), current.get_icon(), current.get_display_name()])
+                combo.set_active_id(current.get_id())
+            if not apps and not current:
+                combo.get_model().append(["", None, "No app installed for this"])
+                combo.set_active_id("")
+                combo.set_sensitive(False)
+            combo.set_hexpand(True)
+            combo.connect("changed", lambda c, t=types: self.choose(c.get_active_id(), t))
+            grid.attach(combo, 1, row, 1, 1)
+
+    @staticmethod
+    def choose(app_id, types):
+        if not app_id:
+            return
+        info = Gio.DesktopAppInfo.new(app_id)
+        for t in types:
+            try:
+                info.set_as_default_for_type(t)
+            except GLib.Error as e:
+                print(f"skornex-defaults: {t}: {e.message}", file=sys.stderr)
+
+
+def main():
+    GLib.set_prgname(APP_ID)
+    app = Gtk.Application(application_id=APP_ID)
+
+    def activate(app):
+        if app.get_windows():
+            app.get_windows()[0].present()
+            return
+        Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme = True
+        window = Gtk.ApplicationWindow(application=app, title=TITLE)
+        window.set_default_size(620, 520)
+        window.set_icon_name(ICON)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(Page())
+        window.add(scroller)
+        # Ctrl+W closes it, like most windows.
+        close = Gio.SimpleAction.new("close", None)
+        close.connect("activate", lambda *_: window.close())
+        window.add_action(close)
+        app.set_accels_for_action("win.close", ["<Ctrl>w"])
+        window.show_all()
+    app.connect("activate", activate)
+    sys.exit(app.run(sys.argv))
+
+
+if __name__ == "__main__":
+    main()

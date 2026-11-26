@@ -81,6 +81,31 @@ ICON_CHARGING = ["\U000f089c", "\U000f0086", "\U000f0087", "\U000f0088", "\U000f
                  "\U000f0089", "\U000f089e", "\U000f008a", "\U000f008b", "\U000f0085"]
 
 
+# The taskbar clock: FORMAT=12 (6:01 PM) or 24 (18:01), from the Date & time
+# settings module.
+CLOCK_FILE = os.path.join(CONFIG, "clock")
+_clock = {"mtime": None, "format": "%-I:%M %p"}
+
+
+def clock_format():
+    try:
+        mtime = os.path.getmtime(CLOCK_FILE)
+    except OSError:
+        mtime = 0
+    if mtime != _clock["mtime"]:
+        _clock["mtime"] = mtime
+        hours = "12"
+        try:
+            with open(CLOCK_FILE) as f:
+                for line in f:
+                    if line.startswith("FORMAT="):
+                        hours = line.split("=", 1)[1].strip()
+        except OSError:
+            pass
+        _clock["format"] = "%H:%M" if hours == "24" else "%-I:%M %p"
+    return _clock["format"]
+
+
 def find_battery():
     """The laptop's battery in /sys, or None on a desktop PC."""
     for path in sorted(glob.glob("/sys/class/power_supply/*")):
@@ -943,7 +968,7 @@ class Bar(Gtk.Window):
     # --- Status on the right (clock, volume, network), every second ---
 
     def tick(self):
-        self.clock_button.text.set_text(time.strftime("%-I:%M %p"))
+        self.clock_button.text.set_text(time.strftime(clock_format()))
         now = time.monotonic()
         if now - getattr(self, "_slow_tick", 0) >= 3:
             self._slow_tick = now

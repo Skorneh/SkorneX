@@ -1,0 +1,11 @@
+[Desktop Entry]
+# SkorneX Settings module (datetime). Named after the window's app ID so the
+# taskbar and title bar find its icon.
+Type=Application
+Name=Date & time
+Comment=Time zone, setting the time automatically, and a 12- or 24-hour clock.
+Exec=skornex-datetime
+Icon=preferences-system-time
+StartupWMClass=dev.skornex.DateTime
+Categories=Settings;
+Keywords=date;time;clock;timezone;time zone;24-hour;ntp;

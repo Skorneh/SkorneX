@@ -32,13 +32,16 @@ main() {
     cat <<'EOF'
 Settings modules. Each one is its own small app; pick only the ones you want
 (you can add or remove them later in Settings):
-  display      Resolution, refresh rate, scale, monitor layout
+  display      Resolution, refresh rate, scale, monitor layout, night light
   sound        Speakers, headphones, microphone, each app's volume
   power        Lock, screen off and sleep times; power button and lid
   mouse        Pointer speed, scrolling, button swap, touchpad
   keyboard     Keyboard layouts (languages), key repeat, Num Lock
   shortcuts    Change, turn off or add keyboard shortcuts
   personalize  Color themes, accent color, wallpaper
+  datetime     Time zone, automatic time, 12- or 24-hour clock
+  defaults     Which apps open links, pictures, videos, music...
+  account      Your user name, change your password
   updates      See and install updates
 EOF
     read -rp "Which ones? (names with spaces between, 'all', or Enter for none) " modules </dev/tty

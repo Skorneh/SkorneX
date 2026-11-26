@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""SkorneX Date & time settings: time zone, setting the time automatically,
+and a 12- or 24-hour clock on the taskbar, like Windows' Date & time.
+
+    skornex-datetime     open it on its own (or search "Date & time")
+
+It's also a page in Settings (skornex-settings). The time zone and automatic
+time are for the whole PC (timedatectl), so changing them can ask for your
+password. The clock style is saved in ~/.config/skornex/clock.
+"""
+
+import os
+import subprocess
+import sys
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+TITLE = "Date & time"
+ICON = "preferences-system-time"
+APP_ID = "dev.skornex.DateTime"
+
+CLOCK_FILE = os.path.expanduser("~/.config/skornex/clock")
+
+
+def timedatectl(*args):
+    try:
+        return subprocess.run(["timedatectl", *args], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def current_zone():
+    result = timedatectl("show", "-p", "Timezone", "--value")
+    return result.stdout.strip() if result and result.returncode == 0 else ""
+
+
+def automatic_time():
+    result = timedatectl("show", "-p", "NTP", "--value")
+    return bool(result and result.stdout.strip() == "yes")
+
+
+def all_zones():
+    result = timedatectl("list-timezones")
+    return result.stdout.split() if result and result.returncode == 0 else []
+
+
+def clock_hours():
+    try:
+        with open(CLOCK_FILE) as f:
+            for line in f:
+                if line.startswith("FORMAT="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return "12"
+
+
+class Page(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_border_width(24)
+        self.loading = True
+        title = Gtk.Label(xalign=0)
+        title.set_markup(f"<span size='x-large' weight='bold'>{TITLE}</span>")
+        self.pack_start(title, False, False, 0)
+        self.now = Gtk.Label(xalign=0)
+        self.pack_start(self.now, False, False, 4)
+
+        grid = Gtk.Grid(row_spacing=10, column_spacing=24)
+        self.pack_start(grid, False, False, 0)
+
+        grid.attach(Gtk.Label(label="Set the time automatically", xalign=0), 0, 0, 1, 1)
+        self.auto = Gtk.Switch(active=automatic_time(), halign=Gtk.Align.START)
+        self.auto.connect("notify::active", lambda s, _p: self.set_auto(s))
+        grid.attach(self.auto, 1, 0, 1, 1)
+
+        grid.attach(Gtk.Label(label="Time zone", xalign=0), 0, 1, 1, 1)
+        # Type to find it: "Boise", "Denver", "London"...
+        self.zone = Gtk.ComboBoxText.new_with_entry()
+        zones = all_zones()
+        self.zones = set(zones)
+        for zone in zones:
+            self.zone.append(zone, zone)
+        completion = Gtk.EntryCompletion(model=self.zone.get_model(), text_column=0,
+                                         inline_completion=False, popup_completion=True)
+        completion.set_match_func(lambda c, key, it: key.lower() in c.get_model()[it][0].lower())
+        self.zone.get_child().set_completion(completion)
+        self.zone.set_active_id(current_zone())
+        self.zone.set_hexpand(True)
+        # Picked from the list, or typed/completed in full ("America/Boise").
+        self.zone.connect("changed", lambda c: self.set_zone(
+            c.get_active_id() or c.get_child().get_text().strip()))
+        grid.attach(self.zone, 1, 1, 1, 1)
+
+        grid.attach(Gtk.Label(label="Clock on the taskbar", xalign=0), 0, 2, 1, 1)
+        self.hours = Gtk.ComboBoxText()
+        self.hours.append("12", "12-hour (6:01 PM)")
+        self.hours.append("24", "24-hour (18:01)")
+        self.hours.set_active_id(clock_hours())
+        self.hours.connect("changed", lambda c: self.set_hours(c.get_active_id()))
+        grid.attach(self.hours, 1, 2, 1, 1)
+
+        self.problem = Gtk.Label(xalign=0)
+        self.problem.set_no_show_all(True)
+        self.pack_start(self.problem, False, False, 0)
+        self.loading = False
+        self.tick()
+        self.timer = GLib.timeout_add_seconds(1, self.tick)
+        self.connect("destroy", lambda *_: GLib.source_remove(self.timer))
+
+    def tick(self):
+        fmt = "%H:%M:%S" if clock_hours() == "24" else "%-I:%M:%S %p"
+        self.now.set_markup(f"<span size='large'>{time.strftime(fmt)}</span>   "
+                            f"<span alpha='65%'>{time.strftime('%A, %B %-d, %Y')}</span>")
+        return True
+
+    def show_problem(self, text):
+        self.problem.set_text(text)
+        self.problem.show()
+
+    def set_zone(self, zone):
+        if self.loading or zone not in self.zones or zone == current_zone():
+            return
+        result = timedatectl("set-timezone", zone)
+        if not result or result.returncode != 0:
+            self.show_problem("The time zone didn't change (it needs your password).")
+            self.loading = True
+            self.zone.set_active_id(current_zone())
+            self.loading = False
+            return
+        self.problem.hide()
+        # The taskbar picks up the new zone when it restarts (a second later).
+        subprocess.run(["pkill", "-f", r"\.local/bin/skornex-bar$"])
+        self.tick()
+
+    def set_auto(self, switch):
+        if self.loading:
+            return
+        result = timedatectl("set-ntp", "true" if switch.get_active() else "false")
+        if not result or result.returncode != 0:
+            self.show_problem("Didn't change (it needs your password).")
+            self.loading = True
+            switch.set_active(automatic_time())
+            self.loading = False
+        else:
+            self.problem.hide()
+
+    def set_hours(self, hours):
+        if self.loading or not hours:
+            return
+        os.makedirs(os.path.dirname(CLOCK_FILE), exist_ok=True)
+        with open(CLOCK_FILE, "w") as f:
+            f.write(f"# Made by Date & time settings (skornex-datetime). 12 or 24.\nFORMAT={hours}\n")
+        self.tick()
+
+
+def main():
+    GLib.set_prgname(APP_ID)
+    app = Gtk.Application(application_id=APP_ID)
+
+    def activate(app):
+        if app.get_windows():
+            app.get_windows()[0].present()
+            return
+        Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme = True
+        window = Gtk.ApplicationWindow(application=app, title=TITLE)
+        window.set_default_size(620, 360)
+        window.set_icon_name(ICON)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(Page())
+        window.add(scroller)
+        # Ctrl+W closes it, like most windows.
+        close = Gio.SimpleAction.new("close", None)
+        close.connect("activate", lambda *_: window.close())
+        window.add_action(close)
+        app.set_accels_for_action("win.close", ["<Ctrl>w"])
+        window.show_all()
+    app.connect("activate", activate)
+    sys.exit(app.run(sys.argv))
+
+
+if __name__ == "__main__":
+    main()

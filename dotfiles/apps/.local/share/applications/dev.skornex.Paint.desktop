@@ -10,4 +10,4 @@ StartupWMClass=dev.skornex.Paint
 Icon=skornex-paint
 Categories=Graphics;
 Keywords=paint;draw;drawing;picture;image;screenshot;mspaint;
-MimeType=image/png;image/jpeg;image/bmp;
+MimeType=image/png;image/jpeg;image/bmp;image/gif;

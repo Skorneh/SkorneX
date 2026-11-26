@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""SkorneX Account settings: your user name and changing your password, like
+Windows' Sign-in options.
+
+    skornex-account     open it on its own (or search "Account")
+
+It's also a page in Settings (skornex-settings). The password is the one for
+the lock screen, sudo and logging in; it's changed with passwd, which checks
+your current password first.
+"""
+
+import os
+import pwd
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+TITLE = "Account"
+ICON = "system-users"
+APP_ID = "dev.skornex.Account"
+
+
+def change_password(current, new):
+    """(ok, message). passwd reads the answers from stdin when there's no
+    terminal, which start_new_session makes sure of."""
+    try:
+        result = subprocess.run(["passwd"], input=f"{current}\n{new}\n{new}\n", capture_output=True,
+                                text=True, timeout=30, start_new_session=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    if result.returncode == 0:
+        return True, "Password changed. Use it next time you unlock or log in."
+    output = (result.stdout + result.stderr).lower()
+    if "authentication" in output:
+        return False, "The current password isn't right."
+    lines = [line.strip() for line in (result.stdout + result.stderr).splitlines()
+             if line.strip() and "password:" not in line.lower()]
+    return False, lines[-1] if lines else "The password didn't change."
+
+
+class Page(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_border_width(24)
+        title = Gtk.Label(xalign=0)
+        title.set_markup(f"<span size='x-large' weight='bold'>{TITLE}</span>")
+        self.pack_start(title, False, False, 0)
+
+        user = pwd.getpwuid(os.getuid())
+        full_name = user.pw_gecos.split(",")[0]
+        who = Gtk.Box(spacing=14)
+        who.pack_start(Gtk.Image.new_from_icon_name("avatar-default", Gtk.IconSize.DIALOG), False, False, 0)
+        name = Gtk.Label(xalign=0)
+        name.set_markup(f"<span size='large' weight='bold'>{GLib.markup_escape_text(full_name or user.pw_name)}</span>"
+                        + (f"\n<span alpha='65%'>{GLib.markup_escape_text(user.pw_name)}</span>" if full_name else ""))
+        who.pack_start(name, False, False, 0)
+        self.pack_start(who, False, False, 8)
+
+        heading = Gtk.Label(xalign=0)
+        heading.set_markup("<b>Change password</b>")
+        heading.set_margin_top(8)
+        self.pack_start(heading, False, False, 0)
+        grid = Gtk.Grid(row_spacing=10, column_spacing=24)
+        self.pack_start(grid, False, False, 0)
+        self.current = Gtk.Entry(visibility=False, hexpand=True)
+        self.new = Gtk.Entry(visibility=False, hexpand=True)
+        self.again = Gtk.Entry(visibility=False, hexpand=True, activates_default=True)
+        for row, (text, entry) in enumerate((("Current password", self.current), ("New password", self.new),
+                                             ("New password again", self.again))):
+            grid.attach(Gtk.Label(label=text, xalign=0), 0, row, 1, 1)
+            grid.attach(entry, 1, row, 1, 1)
+        self.current.connect("activate", lambda _e: self.new.grab_focus())
+        self.new.connect("activate", lambda _e: self.again.grab_focus())
+        self.again.connect("activate", lambda _e: self.change())
+        button = Gtk.Button(label="Change password")
+        button.get_style_context().add_class("suggested-action")
+        button.set_halign(Gtk.Align.START)
+        button.connect("clicked", lambda _b: self.change())
+        self.pack_start(button, False, False, 4)
+        self.result = Gtk.Label(xalign=0, wrap=True)
+        self.pack_start(self.result, False, False, 0)
+
+    def change(self):
+        current, new, again = self.current.get_text(), self.new.get_text(), self.again.get_text()
+        if not current or not new:
+            self.result.set_text("Fill in your current password and the new one.")
+        elif new != again:
+            self.result.set_text("The two new passwords don't match.")
+        else:
+            ok, message = change_password(current, new)
+            self.result.set_text(message)
+            if ok:
+                for entry in (self.current, self.new, self.again):
+                    entry.set_text("")
+
+
+def main():
+    GLib.set_prgname(APP_ID)
+    app = Gtk.Application(application_id=APP_ID)
+
+    def activate(app):
+        if app.get_windows():
+            app.get_windows()[0].present()
+            return
+        Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme = True
+        window = Gtk.ApplicationWindow(application=app, title=TITLE)
+        window.set_default_size(560, 400)
+        window.set_icon_name(ICON)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(Page())
+        window.add(scroller)
+        # Ctrl+W closes it, like most windows.
+        close = Gio.SimpleAction.new("close", None)
+        close.connect("activate", lambda *_: window.close())
+        window.add_action(close)
+        app.set_accels_for_action("win.close", ["<Ctrl>w"])
+        window.show_all()
+    app.connect("activate", activate)
+    sys.exit(app.run(sys.argv))
+
+
+if __name__ == "__main__":
+    main()

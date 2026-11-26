@@ -178,8 +178,10 @@ itself just moves it. Add app shortcuts from a taskbar button's right-click menu
 | **Terminal** (Ctrl+Alt+T) | kitty. `nano` is there for quick edits. |
 | **Notepad** | Mousepad: tabs, line numbers, syntax colors. Opens text files you double-click. |
 | **Snipping Tool** | Screenshots from a window: Rectangle or Full screen, an optional delay, then Save, Copy or Edit in Paint. Print Screen still works too. |
-| **Paint** | SkorneX Paint, laid out like Microsoft Paint. Take a screenshot, open Paint, press Ctrl+V, mark it up, Ctrl+S. |
+| **Paint** | SkorneX Paint, laid out like Microsoft Paint. Pictures open in it when you double-click them. Take a screenshot, open Paint, press Ctrl+V, mark it up, Ctrl+S. |
 | **Task Manager** (Ctrl+Shift+Esc) | Apps and background processes with CPU and memory. Select one and press End task. |
+| **VLC** | Plays videos and music; the default for both. |
+| **Archive manager** | Zip files: right-click in Files for **Extract here** or **Compress**, or double-click a zip to look inside. |
 | **Firefox** | With Pocket, sponsored content, telemetry and the AI sidebar turned off. Check `about:policies` to see the settings. |
 
 Older X11 apps (Steam, Wine games) run through Xwayland, which is included.
@@ -196,13 +198,16 @@ remove one without touching the others.
 
 | Module | Search for | What it does |
 |---|---|---|
-| `display` | Display settings | Resolution, refresh rate, scale and orientation apply as soon as you pick them; drag the monitors into place (they snap edge to edge, no gaps) and press Apply; pick the main display for the taskbar, desktop icons and games. Asks "Keep these display settings?" and goes back after 15 seconds if you can't see anything. |
+| `display` | Display settings | Resolution, refresh rate, scale and orientation apply as soon as you pick them; drag the monitors into place (they snap edge to edge, no gaps) and press Apply; pick the main display for the taskbar, desktop icons and games; Night light (warmer colors from and until the hours you pick, with a strength slider). Asks "Keep these display settings?" and goes back after 15 seconds if you can't see anything. |
 | `sound` | Sound settings | Speakers or headphones and their volume; your microphone with a boost up to 150%, a cap on how loud you can get (a limiter, like OBS's: drag the white line on the meter; peaks never go past it), a live level meter and a record-and-play-back test; each app's volume. |
 | `power` | Power settings | Lock the screen, turn it off and go to sleep after however long you pick (or never); lock when the PC sleeps; what the power button does (power menu, sleep, shut down, nothing). On laptops, separate times for plugged in and on battery (switching by itself when you plug in or unplug), and what closing the lid does (sleep, lock, nothing), also for each. |
 | `mouse` | Mouse settings | Pointer speed, acceleration, scroll speed and direction, swap buttons, double-click speed, pointer size, touchpad tap-to-click. |
 | `keyboard` | Keyboard settings | Keyboard layouts (languages) and the keys that switch them, key repeat, Num Lock. |
 | `shortcuts` | Keyboard shortcuts | Every desktop-wide shortcut in one list: change its keys, turn it off, or add your own that opens an app, runs a command, presses other keys, or clicks the mouse (for example Alt+1 = left click). Shortcuts inside apps (Ctrl+C in Firefox) belong to each app. |
 | `personalize` | Personalize | Color themes (Graphite, Midnight, Forest, Plum, Ember), or pick each color yourself (background, menus, text, accent, and more), and a desktop wallpaper. |
+| `datetime` | Date & time | Time zone (type a city to find it), set the time automatically, 12- or 24-hour clock on the taskbar. |
+| `defaults` | Default apps | Which app opens web links, email links, folders, text, pictures, videos, music, PDFs and zip files. |
+| `account` | Account | Your name, and changing your password (the one for the lock screen, sudo and logging in). |
 | `updates` | Updates | What's waiting to be updated (system, AUR apps, SkorneX itself), one button to install, and an optional reminder at login. |
 
 **Settings** (search "Settings") shows every module you have in one window.
@@ -309,6 +314,7 @@ Updating SkorneX never undoes what you set:
 | No sound | Click the volume icon and pick the right output (speakers, headset…). |
 | No internet after setup | Click the network icon on the taskbar. On Wi-Fi, run `nmtui` in Terminal to connect. |
 | A game won't start | Check that Steam Play is on (see [Gaming](#gaming)), and that you restarted after `gaming.sh`. |
+| Hosting a game server, or Steam Remote Play from this PC, doesn't work | The firewall blocks incoming connections. Allow that one port (`sudo ufw allow 27015`), or check what's allowed with `sudo ufw status`. |
 | Print Screen does nothing in a VM | The VM window often catches the key. Run `skornex-screenshot region` in Terminal instead. |
 
 ## Trying it in a VM

@@ -39,6 +39,17 @@ if ((${#old_audio[@]})); then
 fi
 
 mapfile -t pkgs < <(read_list "$REPO_DIR/packages/pkglist.txt")
+# A package Arch renamed or dropped would stop the whole install, so skip
+# (and mention) any name the repos don't know.
+declare -A in_repos=()
+while read -r name; do in_repos[$name]=1; done < <(pacman -Slq 2>/dev/null)
+if ((${#in_repos[@]})); then
+    known=()
+    for pkg in "${pkgs[@]}"; do
+        if [[ -n "${in_repos[$pkg]:-}" ]]; then known+=("$pkg"); else warn "Skipping $pkg: not in Arch's repos."; fi
+    done
+    pkgs=("${known[@]}")
+fi
 # Updating SkorneX from the Updates module (SKORNEX_ONLY=1) leaves your other
 # apps alone: "Install updates" is for those. Only when SkorneX needs a new
 # package is a full update unavoidable (Arch doesn't support installing new
@@ -192,6 +203,14 @@ EOF
 # Folders open in Files (kitty's "open folder in terminal" entry claims them
 # otherwise).
 "$HOME/.local/bin/skornex-once" default-folders xdg-mime default nemo.desktop inode/directory
+# Pictures open in Paint, videos and music in VLC, zip files in the archive
+# manager. All changeable in the Default apps settings.
+"$HOME/.local/bin/skornex-once" default-pictures xdg-mime default dev.skornex.Paint.desktop \
+    image/png image/jpeg image/bmp image/gif
+"$HOME/.local/bin/skornex-once" default-media xdg-mime default vlc.desktop \
+    video/mp4 video/x-matroska video/webm video/x-msvideo video/quicktime video/mpeg \
+    audio/mpeg audio/flac audio/ogg audio/x-wav audio/mp4 audio/aac
+"$HOME/.local/bin/skornex-once" default-archives xdg-mime default org.gnome.FileRoller.desktop application/zip
 # (Your home folders and Files' sidebar are set up at login: skornex-folders.)
 sed -i '/^\(application\|text\)\/x-shellscript=org.xfce.mousepad.desktop/d' "$HOME/.config/mimeapps.list" 2>/dev/null || true
 
@@ -231,6 +250,22 @@ mkdir -p "$HOME/.local/share/skornex"
 printf '%s\n%s\n' "$(cat "$REPO_DIR/VERSION")" "$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null)" \
     > "$HOME/.local/share/skornex/installed"
 
+
+# --- 9b. Firewall ---
+# Blocks connections coming in from other computers; everything going out
+# (Firefox, Steam, Discord...) works as usual. Set up once: rules you change
+# later (sudo ufw ...) stay, and so does turning it off.
+if command -v ufw >/dev/null && ! grep -qxF firewall "$once_file" 2>/dev/null; then
+    info "Turning on the firewall (blocks incoming connections)..."
+    sudo ufw default deny incoming >/dev/null
+    sudo ufw default allow outgoing >/dev/null
+    # Keep SSH reachable on a PC that's set up for it (or being set up over it).
+    if systemctl is-enabled -q sshd.service 2>/dev/null || [[ -n "${SSH_CONNECTION:-}" ]]; then
+        sudo ufw allow ssh >/dev/null
+    fi
+    sudo ufw --force enable >/dev/null && sudo systemctl enable ufw.service \
+        && echo firewall >> "$once_file"
+fi
 echo
 info "SkorneX $(cat "$REPO_DIR/VERSION") is installed."
 # On a first install from a text console (not through bootstrap.sh, which

@@ -3,6 +3,15 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.4.0
+- New settings modules: Date & time (time zone, automatic time, 12- or
+  24-hour clock), Default apps, and Account (change your password).
+- Night light in Display settings.
+- VLC for videos and music; zip files in Files (Extract here, Compress).
+- Pictures open in Paint.
+- A firewall (ufw) blocks incoming connections; everything going out works
+  as before. SSH stays reachable where it's set up.
+
 ## 0.3.3
 - The README shows each tool in action: search, the taskbar panels, Run, the
   desktop, Task Manager, Paint, Snipping Tool and Settings.

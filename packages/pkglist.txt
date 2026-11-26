@@ -64,6 +64,13 @@ nemo
 gvfs
 mousepad
 firefox
+# Videos and music
+vlc
+vlc-plugins-all
+# Zip files: the archive manager, and its "Extract here" and "Compress" in Files
+file-roller
+nemo-fileroller
+zip
 
 # --- Audio ---
 pipewire
@@ -75,6 +82,7 @@ libpulse
 # --- Network ---
 networkmanager
 openssh
+ufw
 
 # --- Fonts ---
 noto-fonts
