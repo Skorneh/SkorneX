@@ -16,7 +16,7 @@ case "${1:-region}" in
         # active window's app and title come from the same library the
         # taskbar uses, and pick which ID is the active one.
         id="$(python3 - <<'EOF'
-import json, subprocess, time
+import json, re, subprocess, time
 import gi
 gi.require_version("Libxfce4windowing", "0.0")
 from gi.repository import GLib, Libxfce4windowing as Xfw
@@ -52,7 +52,10 @@ def field(top, word):
 
 for args in (["lswt", "-j"], ["lswt", "-j", "--force-protocol", "ext-foreign-toplevel-list-v1"]):
     try:
-        data = json.loads(subprocess.run(args, capture_output=True, text=True, timeout=3).stdout)
+        out = subprocess.run(args, capture_output=True, text=True, timeout=3).stdout
+        # lswt prints the identifiers without quotes, which isn't valid JSON.
+        out = re.sub(r'("identifier"\s*:\s*)([^",\s}]+)', r'\1"\2"', out)
+        data = json.loads(out)
     except (OSError, ValueError, subprocess.SubprocessError):
         continue
     tops = list(toplevels(data))
