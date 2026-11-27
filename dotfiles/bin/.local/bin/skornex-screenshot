@@ -69,7 +69,7 @@ EOF
             notify-send -t 2000 "Screenshot" "Window copied to clipboard"
         else
             # No window capture here: drag a box instead.
-            exec "$0" region
+            rm -f "$shot"; exec "$0" region
         fi ;;
     save)
         dir="$HOME/Pictures/Screenshots"
