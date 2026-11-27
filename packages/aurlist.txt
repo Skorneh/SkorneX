@@ -5,3 +5,5 @@
 maplemono-nf
 # Turns the monitor off when idle (swayidle calls it).
 wlopm
+# Lists open windows, so Alt+Print Screen can capture the active one.
+lswt

@@ -101,12 +101,16 @@
       <action name="Execute" command="~/.local/bin/skornex-bar power" />
     </keybind>
 
-    <!-- Screenshots, straight to the clipboard. Win+Print saves a file. -->
+    <!-- Screenshots, straight to the clipboard. Alt+Print is the active
+         window; Win+Print saves a file. -->
     <keybind key="Print">
       <action name="Execute" command="~/.local/bin/skornex-screenshot region" />
     </keybind>
     <keybind key="S-Print">
       <action name="Execute" command="~/.local/bin/skornex-screenshot full" />
+    </keybind>
+    <keybind key="A-Print">
+      <action name="Execute" command="~/.local/bin/skornex-screenshot window" />
     </keybind>
     <keybind key="W-Print">
       <action name="Execute" command="~/.local/bin/skornex-screenshot save" />

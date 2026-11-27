@@ -3,6 +3,10 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.1
+- Alt+Print Screen copies the window you're using, like Windows.
+- Display settings keep the monitor layout you arrange when you press Apply.
+
 ## 0.5.0
 - Setup asks which web browser you want: LibreWolf (recommended), Firefox,
   Helium or none. Firefox is no longer part of the base install; updating

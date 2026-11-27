@@ -254,6 +254,7 @@ already made.
 | Ctrl+Alt+Delete | Power menu (Lock, Restart, Shut down) |
 | Print Screen | Drag a box, copy it to the clipboard |
 | Shift+Print Screen | Whole screen to the clipboard |
+| Alt+Print Screen | The window you're using, to the clipboard |
 | Win+Print Screen | Whole screen, saved to Pictures/Screenshots |
 | Volume keys | Volume up, down, mute, with a small volume bar above the sound icon |
 

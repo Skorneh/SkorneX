@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # skornex-screenshot region  drag a box, copy to clipboard
 # skornex-screenshot full    whole screen, copy to clipboard
+# skornex-screenshot window  the window you're using, copy to clipboard
 # skornex-screenshot save    whole screen, saved to ~/Pictures/Screenshots
 case "${1:-region}" in
     region)
@@ -10,6 +11,66 @@ case "${1:-region}" in
     full)
         grim - | wl-copy --type image/png
         notify-send -t 2000 "Screenshot" "Copied to clipboard" ;;
+    window)
+        # grim captures one window by its ID (-T). lswt lists the IDs; the
+        # active window's app and title come from the same library the
+        # taskbar uses, and pick which ID is the active one.
+        id="$(python3 - <<'EOF'
+import json, subprocess, time
+import gi
+gi.require_version("Libxfce4windowing", "0.0")
+from gi.repository import GLib, Libxfce4windowing as Xfw
+
+screen = Xfw.Screen.get_default()
+ctx = GLib.MainContext.default()
+end = time.monotonic() + 1
+while screen.get_active_window() is None and time.monotonic() < end:
+    ctx.iteration(False)
+    time.sleep(0.01)
+active = screen.get_active_window()
+if active is None:
+    raise SystemExit
+title = active.get_name() or ""
+apps = set(active.get_class_ids() or [])
+
+
+def toplevels(data):
+    """Every window lswt lists, whatever the JSON nesting."""
+    if isinstance(data, dict):
+        if any("ident" in k for k in data):
+            yield data
+        for value in data.values():
+            yield from toplevels(value)
+    elif isinstance(data, list):
+        for value in data:
+            yield from toplevels(value)
+
+
+def field(top, word):
+    return next((v for k, v in top.items() if word in k.lower()), None)
+
+
+for args in (["lswt", "-j"], ["lswt", "-j", "--force-protocol", "ext-foreign-toplevel-list-v1"]):
+    try:
+        data = json.loads(subprocess.run(args, capture_output=True, text=True, timeout=3).stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        continue
+    tops = list(toplevels(data))
+    found = [t for t in tops if field(t, "title") == title and field(t, "app") in apps] \
+        or [t for t in tops if field(t, "title") == title]
+    if found:
+        print(field(found[0], "ident"))
+        break
+EOF
+)"
+        shot="$(mktemp --suffix=.png)"
+        trap 'rm -f "$shot"' EXIT
+        if [[ -n "$id" ]] && grim -T "$id" "$shot" && wl-copy --type image/png <"$shot"; then
+            notify-send -t 2000 "Screenshot" "Window copied to clipboard"
+        else
+            # No window capture here: drag a box instead.
+            exec "$0" region
+        fi ;;
     save)
         dir="$HOME/Pictures/Screenshots"
         mkdir -p "$dir"
