@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# skornex-runfile FILE
+# Double-clicking a program or installer you downloaded (.run, .sh,
+# .AppImage) opens it in Terminal, asks first, then runs it, like Windows.
+file="$(realpath -- "${1:?}")" || exit 1
+if [[ -z "${SKORNEX_RUNFILE_TERMINAL:-}" ]]; then
+    exec kitty --title "$(basename -- "$file")" env SKORNEX_RUNFILE_TERMINAL=1 "$0" "$file"
+fi
+cd -- "$(dirname -- "$file")" || exit 1
+printf 'Run %s?\nOnly run programs from places you trust.\n\n' "$(basename -- "$file")"
+read -rp "Run it? [y/N] " reply
+[[ "$reply" =~ ^[Yy] ]] || exit 0
+echo
+chmod u+x -- "$file" && "$file"
+echo
+read -rp "Finished. Press Enter to close. " _

@@ -196,8 +196,8 @@ EOF
 
 # --- 6b. Default apps ---
 # Set once (skornex-once): if you pick other default apps later, they stay.
-# Notepad (Mousepad) opens notes and other text files. Scripts (.sh) keep
-# their normal behavior; an earlier SkorneX version sent them to Notepad too.
+# Notepad (Mousepad) opens notes and other text files. Scripts (.sh) run
+# instead (below); an earlier SkorneX version sent them to Notepad.
 "$HOME/.local/bin/skornex-once" default-notepad xdg-mime default org.xfce.mousepad.desktop \
     text/plain text/markdown text/x-markdown application/json text/x-log
 # Folders open in Files (kitty's "open folder in terminal" entry claims them
@@ -211,6 +211,11 @@ EOF
     video/mp4 video/x-matroska video/webm video/x-msvideo video/quicktime video/mpeg \
     audio/mpeg audio/flac audio/ogg audio/x-wav audio/mp4 audio/aac
 "$HOME/.local/bin/skornex-once" default-archives xdg-mime default org.gnome.FileRoller.desktop application/zip
+# Programs and installers you download (.run, .sh, .AppImage) ask, then run
+# in Terminal.
+"$HOME/.local/bin/skornex-once" default-programs xdg-mime default dev.skornex.RunFile.desktop \
+    application/x-shellscript application/x-executable application/x-pie-executable \
+    application/vnd.appimage application/x-makeself
 # (Your home folders and Files' sidebar are set up at login: skornex-folders.)
 sed -i '/^\(application\|text\)\/x-shellscript=org.xfce.mousepad.desktop/d' "$HOME/.config/mimeapps.list" 2>/dev/null || true
 

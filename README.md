@@ -183,6 +183,7 @@ itself just moves it. Add app shortcuts from a taskbar button's right-click menu
 | **Paint** | SkorneX Paint, laid out like Microsoft Paint. Pictures open in it when you double-click them. Take a screenshot, open Paint, press Ctrl+V, mark it up, Ctrl+S. |
 | **Task Manager** (Ctrl+Shift+Esc) | Apps and background processes with CPU and memory. Select one and press End task. |
 | **VLC** | Plays videos and music; the default for both. |
+| **Programs you download** | Double-click a `.run`, `.sh` or `.AppImage` file: Terminal opens, asks "Run it?", then runs it (an installer, for example). |
 | **Archive manager** | Zip files: right-click in Files for **Extract here** or **Compress**, or double-click a zip to look inside. |
 
 Older X11 apps (Steam, Wine games) run through Xwayland, which is included.
@@ -210,7 +211,7 @@ remove one without touching the others.
 
 | Module | Search for | What it does |
 |---|---|---|
-| `display` | Display settings | Resolution, refresh rate, scale and orientation apply as soon as you pick them; drag the monitors into place (they snap edge to edge, no gaps) and press Apply; pick the main display for the taskbar, desktop icons and games; Night light (warmer colors from and until the hours you pick, with a strength slider). Asks "Keep these display settings?" and goes back after 15 seconds if you can't see anything. |
+| `display` | Display settings | Resolution, refresh rate, scale and orientation apply as soon as you pick them; drag the monitors into place (they snap edge to edge, no gaps) and press Apply; Identify shows each monitor's number on it; pick the main display for the taskbar, desktop icons and games; Night light (warmer colors from and until the hours you pick, with a strength slider). Asks "Keep these display settings?" and goes back after 15 seconds if you can't see anything. |
 | `sound` | Sound settings | Speakers or headphones and their volume; your microphone with a boost up to 150%, a cap on how loud you can get (a limiter, like OBS's: drag the white line on the meter; peaks never go past it), a live level meter and a record-and-play-back test; each app's volume. |
 | `power` | Power settings | Lock the screen, turn it off and go to sleep after however long you pick (or never); lock when the PC sleeps; what the power button does (power menu, sleep, shut down, nothing). On laptops, separate times for plugged in and on battery (switching by itself when you plug in or unplug), and what closing the lid does (sleep, lock, nothing), also for each. |
 | `mouse` | Mouse settings | Pointer speed, acceleration, scroll speed and direction, swap buttons, double-click speed, pointer size, touchpad tap-to-click. |

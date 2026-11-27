@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Run program
+Comment=Run a program or installer you downloaded
+Icon=system-run
+Exec=skornex-runfile %f
+Terminal=false
+NoDisplay=true
+MimeType=application/x-shellscript;application/x-executable;application/x-pie-executable;application/vnd.appimage;application/x-makeself;

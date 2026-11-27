@@ -3,6 +3,11 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.2
+- Identify in Display settings shows each monitor's number on it.
+- Double-clicking a program or installer you downloaded (.run, .sh,
+  .AppImage) asks, then runs it in Terminal.
+
 ## 0.5.1
 - Alt+Print Screen copies the window you're using, like Windows.
 - Display settings keep the monitor layout you arrange when you press Apply.
