@@ -3,6 +3,51 @@
 # skornex-screenshot full    whole screen, copy to clipboard
 # skornex-screenshot window  the window you're using, copy to clipboard
 # skornex-screenshot save    whole screen, saved to ~/Pictures/Screenshots
+# Cuts the empty (transparent or pure black) strips off the edges of a window
+# capture: some apps (LibreWolf) come with them.
+trim() {
+    python3 - "$1" <<'EOF'
+import sys
+import gi
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf
+
+path = sys.argv[1]
+pix = GdkPixbuf.Pixbuf.new_from_file(path)
+w, h, n, stride = pix.get_width(), pix.get_height(), pix.get_n_channels(), pix.get_rowstride()
+data = pix.get_pixels()
+black = b"\0\0\0\xff" if n == 4 else b"\0\0\0"
+
+
+def empty(pixels, count):
+    """pixels: count pixels, n bytes each."""
+    if n == 4 and pixels[3::4] == bytes(count):
+        return True
+    return pixels == black * count
+
+
+def row(y, x0, x1):
+    return data[y * stride + x0 * n: y * stride + x1 * n]
+
+
+def col(x, y0, y1):
+    return b"".join(data[y * stride + x * n: y * stride + x * n + n] for y in range(y0, y1))
+
+
+top, bottom, left, right = 0, h, 0, w
+while top < bottom - 1 and empty(row(top, left, right), right - left):
+    top += 1
+while bottom - 1 > top and empty(row(bottom - 1, left, right), right - left):
+    bottom -= 1
+while left < right - 1 and empty(col(left, top, bottom), bottom - top):
+    left += 1
+while right - 1 > left and empty(col(right - 1, top, bottom), bottom - top):
+    right -= 1
+if (top, bottom, left, right) != (0, h, 0, w):
+    pix.new_subpixbuf(left, top, right - left, bottom - top).savev(path, "png", [], [])
+EOF
+}
+
 case "${1:-region}" in
     region)
         area="$(slurp)" || exit 0
@@ -68,7 +113,7 @@ EOF
 )"
         shot="$(mktemp --suffix=.png)"
         trap 'rm -f "$shot"' EXIT
-        if [[ -n "$id" ]] && grim -T "$id" "$shot" && wl-copy --type image/png <"$shot"; then
+        if [[ -n "$id" ]] && grim -T "$id" "$shot" && trim "$shot" && wl-copy --type image/png <"$shot"; then
             notify-send -t 2000 "Screenshot" "Window copied to clipboard"
         else
             # No window capture here: drag a box instead.
