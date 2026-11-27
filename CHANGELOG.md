@@ -3,6 +3,12 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.3
+- Dragging taskbar icons to reorder them follows the mouse; before, you had
+  to drag far past where you wanted them.
+- Alt+Print Screen copies the active window again instead of asking you to
+  drag a box, without the black strips some apps added along the edges.
+
 ## 0.5.2
 - Identify in Display settings shows each monitor's number on it.
 - Double-clicking a program or installer you downloaded (.run, .sh,
