@@ -461,7 +461,10 @@ class AppButton(Gtk.Button):
             box = self.get_parent()
             x, _ = self.translate_coordinates(box, int(event.x), int(event.y))
             others = [c for c in box.get_children() if c is not self]
-            index = sum(1 for c in others if c.get_allocation().x + c.get_allocation().width / 2 < x)
+            # Compare in the row's own coordinates: a button's allocation is
+            # measured from the taskbar's left edge, not the row's.
+            index = sum(1 for c in others
+                        if c.translate_coordinates(box, c.get_allocated_width() // 2, 0)[0] < x)
             box.reorder_child(self, index)
         return True
 
