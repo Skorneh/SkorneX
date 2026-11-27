@@ -67,6 +67,13 @@ def overlaps(a, b):
     return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def gap(a, b):
+    """How far apart two monitors are (0 when they touch or overlap)."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    return max(0, bx - (ax + aw), ax - (bx + bw)) + max(0, by - (ay + ah), ay - (by + bh))
+
+
 def snap(rect, others):
     """Moves a monitor to the nearest spot touching another one edge to edge
     (no gap, no overlap), lining it up with that monitor's top, bottom or
@@ -459,17 +466,24 @@ class Page(Gtk.Box):
         return frame
 
     def place(self, states):
-        """Re-snaps every monitor against the ones before it (sizes may have
-        changed), then moves the layout so its top-left corner is at 0,0."""
+        """Re-snaps every monitor (sizes may have changed), then moves the
+        layout so its top-left corner is at 0,0. It starts from the main
+        display and goes outward, each time with the monitor closest to the
+        ones already placed, so a monitor only touching a middle one stays
+        where you put it."""
         on = sorted((n for n, st in states.items() if st["enabled"] and st["mode"]),
-                    key=lambda n: (n != self.main, states[n]["pos"]))
+                    key=lambda n: (n != self.main, n))
+        rects = {n: (*states[n]["pos"], *logical_size(states[n])) for n in on}
         placed = []
-        for name in on:
-            rect = (*states[name]["pos"], *logical_size(states[name]))
+        while on:
+            name = min(on, key=lambda n: min((gap(rects[n], p) for p in placed), default=0))
+            on.remove(name)
+            rect = rects[name]
             if placed:
                 states[name]["pos"] = snap(rect, placed)
                 rect = (*states[name]["pos"], rect[2], rect[3])
             placed.append(rect)
+        on = list(rects)
         if on:
             min_x = min(states[n]["pos"][0] for n in on)
             min_y = min(states[n]["pos"][1] for n in on)
