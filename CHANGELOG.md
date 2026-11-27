@@ -3,6 +3,11 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.0
+- Setup asks which web browser you want: LibreWolf (recommended), Firefox,
+  Helium or none. Firefox is no longer part of the base install; updating
+  leaves the browser you have alone.
+
 ## 0.4.0
 - New settings modules: Date & time (time zone, automatic time, 12- or
   24-hour clock), Default apps, and Account (change your password).

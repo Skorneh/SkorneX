@@ -214,11 +214,30 @@ EOF
 # (Your home folders and Files' sidebar are set up at login: skornex-folders.)
 sed -i '/^\(application\|text\)\/x-shellscript=org.xfce.mousepad.desktop/d' "$HOME/.config/mimeapps.list" 2>/dev/null || true
 
-# --- 7. Firefox debloat ---
-# Turns off Pocket, sponsored content, telemetry, studies and the AI sidebar.
-# Every setting stays changeable in Firefox. Check it at about:policies.
-info "Installing the Firefox policy file..."
-sudo install -Dm644 "$REPO_DIR/system/firefox-policies.json" /etc/firefox/policies/policies.json
+# --- 7. Web browser ---
+# The one picked during setup (bootstrap.sh sets SKORNEX_BROWSER): librewolf,
+# firefox, helium or none. Updates don't set it, so they leave whatever browser
+# you have alone. The picked one becomes the default for links.
+browser_pkg=""
+case "${SKORNEX_BROWSER:-}" in
+    librewolf) browser_pkg=librewolf; sudo pacman -S --needed --noconfirm librewolf ;;
+    firefox) browser_pkg=firefox; sudo pacman -S --needed --noconfirm firefox ;;
+    helium) browser_pkg=helium-browser-bin; paru -S --needed --noconfirm helium-browser-bin ;;
+esac
+if [[ -n "$browser_pkg" ]]; then
+    # Its .desktop file, whatever the package calls it.
+    browser_desktop="$(pacman -Qlq "$browser_pkg" | grep -m1 '/usr/share/applications/.*\.desktop$' || true)"
+    if [[ -n "$browser_desktop" ]]; then
+        xdg-settings set default-web-browser "$(basename "$browser_desktop")" \
+            || warn "Couldn't make $browser_pkg the default browser; pick it in Default apps."
+    fi
+fi
+# Firefox's settings file, when Firefox is installed: turns off Pocket,
+# sponsored content, telemetry, studies and the AI sidebar. Every setting stays
+# changeable in Firefox; check it at about:policies.
+if pacman -Qq firefox &>/dev/null; then
+    sudo install -Dm644 "$REPO_DIR/system/firefox-policies.json" /etc/firefox/policies/policies.json
+fi
 
 # --- 8. Proxmox/QEMU guest agent (VMs only) ---
 # Lets Proxmox shut the VM down cleanly and show its IP address.

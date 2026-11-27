@@ -1,0 +1,7 @@
+# Web browsers SkorneX offers during setup (bootstrap.sh asks, install.sh
+# installs the one picked via SKORNEX_BROWSER). None is in the base install.
+# Listed here so pkgcheck knows them.
+
+librewolf            # Firefox without Pocket, telemetry, sponsored content or AI (recommended)
+firefox              # with SkorneX's settings file (system/firefox-policies.json)
+helium-browser-bin   # AUR: Chrome-like, ungoogled-chromium with uBlock Origin built in

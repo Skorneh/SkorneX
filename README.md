@@ -69,13 +69,15 @@ Take out the USB stick and log in with your user on the text screen.
 curl -fsSL https://raw.githubusercontent.com/Skorneh/SkorneX/main/bootstrap.sh | bash
 ```
 
-It asks three things up front:
+It asks four things up front:
 
 - **"Also install gaming?"** Answer **y** on a gaming PC: it also picks and
   installs the drivers for your graphics card. You can do it later instead,
   see [Gaming](#gaming).
 - **Which settings modules you want** (Display, Sound, Mouse…). Type their
   names, `all`, or press Enter for none. See [Settings](#settings).
+- **Which web browser**: LibreWolf (recommended), Firefox, Helium or none.
+  See [Web browser](#web-browser).
 - **Your password**, once.
 
 Then it runs by itself (10–30 minutes, depending on your internet) and
@@ -92,7 +94,7 @@ went missing.
 ```bash
 sudo pacman -S --needed git
 git clone https://github.com/Skorneh/SkorneX.git ~/LinuxSetup
-~/LinuxSetup/install.sh
+SKORNEX_BROWSER=librewolf ~/LinuxSetup/install.sh   # or firefox, helium, none
 ~/LinuxSetup/gaming.sh      # optional
 sudo reboot
 ```
@@ -182,9 +184,19 @@ itself just moves it. Add app shortcuts from a taskbar button's right-click menu
 | **Task Manager** (Ctrl+Shift+Esc) | Apps and background processes with CPU and memory. Select one and press End task. |
 | **VLC** | Plays videos and music; the default for both. |
 | **Archive manager** | Zip files: right-click in Files for **Extract here** or **Compress**, or double-click a zip to look inside. |
-| **Firefox** | With Pocket, sponsored content, telemetry and the AI sidebar turned off. Check `about:policies` to see the settings. |
 
 Older X11 apps (Steam, Wine games) run through Xwayland, which is included.
+
+### Web browser
+
+Setup asks which one you want; it becomes the default for links. None is part
+of the base install, and updates never add or remove one.
+
+| Browser | |
+|---|---|
+| **LibreWolf** (recommended) | Firefox without Pocket, telemetry, sponsored content or AI, with uBlock Origin built in. It deletes cookies when you close it, so you're signed out each time; to stay signed in, turn off **Settings → Privacy & Security → Delete cookies and site data when LibreWolf is closed**. |
+| **Firefox** | With Pocket, sponsored content, telemetry and the AI sidebar turned off. Check `about:policies` to see the settings. |
+| **Helium** | Chrome-like (built on ungoogled-chromium), with uBlock Origin built in. A newer project, installed from the AUR. |
 
 | Task Manager | Paint | Snipping Tool |
 |---|---|---|
@@ -203,7 +215,7 @@ remove one without touching the others.
 | `power` | Power settings | Lock the screen, turn it off and go to sleep after however long you pick (or never); lock when the PC sleeps; what the power button does (power menu, sleep, shut down, nothing). On laptops, separate times for plugged in and on battery (switching by itself when you plug in or unplug), and what closing the lid does (sleep, lock, nothing), also for each. |
 | `mouse` | Mouse settings | Pointer speed, acceleration, scroll speed and direction, swap buttons, double-click speed, pointer size, touchpad tap-to-click. |
 | `keyboard` | Keyboard settings | Keyboard layouts (languages) and the keys that switch them, key repeat, Num Lock. |
-| `shortcuts` | Keyboard shortcuts | Every desktop-wide shortcut in one list: change its keys, turn it off, or add your own that opens an app, runs a command, presses other keys, or clicks the mouse (for example Alt+1 = left click). Shortcuts inside apps (Ctrl+C in Firefox) belong to each app. |
+| `shortcuts` | Keyboard shortcuts | Every desktop-wide shortcut in one list: change its keys, turn it off, or add your own that opens an app, runs a command, presses other keys, or clicks the mouse (for example Alt+1 = left click). Shortcuts inside apps (Ctrl+C in the browser) belong to each app. |
 | `personalize` | Personalize | Color themes (Graphite, Midnight, Forest, Plum, Ember), or pick each color yourself (background, menus, text, accent, and more), and a desktop wallpaper. |
 | `datetime` | Date & time | Time zone (type a city to find it), set the time automatically, 12- or 24-hour clock on the taskbar. |
 | `defaults` | Default apps | Which app opens web links, email links, folders, text, pictures, videos, music, PDFs and zip files. |
@@ -247,7 +259,7 @@ already made.
 
 Dragging a window to a screen edge snaps it to half the screen, to a corner
 for a quarter, and to the top to maximize it. Mouse back/forward buttons work
-in Firefox and Files.
+in the browser and Files.
 
 ## Keeping it up to date
 
@@ -348,19 +360,19 @@ include:
 
 | Path | What it does |
 |---|---|
-| `bootstrap.sh` | The one-command setup: asks about gaming, downloads the repo, runs `install.sh` (and `gaming.sh`), restarts. |
+| `bootstrap.sh` | The one-command setup: asks about gaming, modules and the browser, downloads the repo, runs `install.sh` (and `gaming.sh`), restarts. |
 | `VERSION` | SkorneX's version (still alpha, so 0.x). Updates shows it and the newest one online. |
 | `CHANGELOG.md` | What changed in each version. When `VERSION` changes, `.github/workflows/release.yml` publishes that version as a GitHub release with these notes. |
-| `install.sh` | Installs the packages, links the configs, applies the colors, sets up the lock screen login, debloats Firefox. Safe to run again. |
+| `install.sh` | Installs the packages, links the configs, applies the colors, sets up the lock screen login, installs the browser picked during setup. Safe to run again. |
 | `gaming.sh` | `[multilib]`, GPU drivers, and the gaming apps. Safe to run again. |
-| `packages/` | Package lists: `pkglist.txt` (official repos), `aurlist.txt` (AUR), `gaming.txt`, and `removelist.txt` (packages older versions of SkorneX used, removed on update). |
+| `packages/` | Package lists: `pkglist.txt` (official repos), `aurlist.txt` (AUR), `gaming.txt`, `browsers.txt` (the setup choices), and `removelist.txt` (packages older versions of SkorneX used, removed on update). |
 | `dotfiles/` | Config files, linked into your home folder with GNU Stow. Each folder mirrors `~`. |
 | `dotfiles/bin/.local/bin/` | The SkorneX tools: `skornex-bar` (taskbar and desktop), `skornex-taskmgr`, `skornex-paint`, `skornex-screenshot`, `skornex-theme`, `skornex-settings`, `skornex-module`, `skornex-labwc`. |
 | `modules/` | The Settings modules, one folder each. Everything in a module's `files/` folder is linked into your home folder by `skornex-module add`; its `files/.local/share/skornex/settings/NAME.conf` describes it and lists the packages it needs. To make your own, copy a module folder and change it. |
 | `dotfiles/apps/` | App list tweaks: kitty shown as Terminal, Mousepad as Notepad, Paint and Task Manager added, a few tools hidden from search. |
 | `dotfiles/skornex/.config/skornex/` | `colors` (all the colors) and `pins` (taskbar pins). |
 | `theme/templates/` | Configs that use the colors. `skornex-theme` fills them in. |
-| `system/firefox-policies.json` | The Firefox settings. |
+| `system/firefox-policies.json` | The Firefox settings, used when Firefox is installed. |
 | `scripts/` | Shared helpers and `check-packages.sh` (`pkgcheck`). |
 
 If you send changes: never commit passwords, SSH keys or tokens. `.gitignore`

@@ -4,7 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Skorneh/SkorneX/main/bootstrap.sh | bash
 #
-# It asks its questions first (gaming, settings modules, your password), then runs
+# It asks its questions first (gaming, settings modules, browser, your password), then runs
 # without needing you: installs git, downloads this repo to ~/LinuxSetup, runs
 # install.sh (and gaming.sh if you said yes), and restarts into SkorneX.
 set -euo pipefail
@@ -13,7 +13,7 @@ set -euo pipefail
 main() {
     local repo=https://github.com/Skorneh/SkorneX.git
     local dir="$HOME/LinuxSetup"
-    local reply gaming=0 modules=""
+    local reply gaming=0 modules="" browser=""
 
     if [[ $EUID -eq 0 ]]; then
         echo "Run this as your normal user, not root. It uses sudo when needed." >&2
@@ -45,6 +45,21 @@ Settings modules. Each one is its own small app; pick only the ones you want
   updates      See and install updates
 EOF
     read -rp "Which ones? (names with spaces between, 'all', or Enter for none) " modules </dev/tty
+    echo
+    cat <<'EOF'
+Which web browser?
+  1) LibreWolf  Firefox without Pocket, telemetry, ads or AI (recommended)
+  2) Firefox
+  3) Helium     Chrome-like, with an ad blocker built in (newer project)
+  4) None       (install your own later)
+EOF
+    read -rp "Pick 1-4 [1] " reply </dev/tty
+    case "$reply" in
+        2) browser=firefox ;;
+        3) browser=helium ;;
+        4) browser=none ;;
+        *) browser=librewolf ;;
+    esac
     echo "Now your password, once:"
     sudo -v </dev/tty
 
@@ -59,7 +74,7 @@ EOF
     source "$dir/scripts/lib.sh"
     keep_sudo </dev/tty
 
-    SKORNEX_BOOTSTRAP=1 SKORNEX_MODULES="$modules" "$dir/install.sh" </dev/tty
+    SKORNEX_BOOTSTRAP=1 SKORNEX_MODULES="$modules" SKORNEX_BROWSER="$browser" "$dir/install.sh" </dev/tty
     if ((gaming)); then
         SKORNEX_YES=1 "$dir/gaming.sh" </dev/tty
     fi
