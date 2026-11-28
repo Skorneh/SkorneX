@@ -822,8 +822,14 @@ class Catcher(Gtk.Window):
                    namespace="skornex-catcher")
         make_transparent(self)
         self.get_style_context().add_class("catcher")
-        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        self.connect("button-press-event", lambda _w, event: on_click(event))
+        # Closes on the release, not the press: hiding while the button is
+        # still down loses the release, and GTK then keeps sending every
+        # click in the taskbar to this hidden window, so nothing in the next
+        # flyout could be clicked (clicking a full-screen game to close
+        # search did it).
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
+        self.connect("button-press-event", lambda *_: True)
+        self.connect("button-release-event", lambda _w, event: on_click(event))
 
 
 # --- The bar ----------------------------------------------------------------
@@ -1374,11 +1380,17 @@ class Bar(Gtk.Window):
             def on_press(widget, event, it=item):
                 if event.button == 3 or it.get("ItemIsMenu"):
                     self.tray.context_menu(it, widget, event, done=lambda: after_menu(self.close_flyout))
-                elif event.button == 1:
+                return True
+
+            def on_release(widget, event, it=item):
+                # On the release: closing the flyout while the button is still
+                # down would leave GTK sending later clicks to it (see Catcher).
+                if event.button == 1 and not it.get("ItemIsMenu"):
                     self.tray.activate(it)
                     self.close_flyout()
                 return True
             button.connect("button-press-event", on_press)
+            button.connect("button-release-event", on_release)
             grid.add(button)
         fly.box.pack_start(grid, False, False, 0)
         fly.show_all()
