@@ -13,6 +13,8 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import gi
 
@@ -48,6 +50,21 @@ def all_zones():
     return result.stdout.split() if result and result.returncode == 0 else []
 
 
+def zone_offset(zone):
+    """UTC-07:00 for America/Boise, right now (it changes with daylight time)."""
+    try:
+        z = datetime.now(ZoneInfo(zone)).strftime("%z")
+    except Exception:
+        return ""
+    return f"UTC{z[0]}{z[1:3]}:{z[3:]}" if z else ""
+
+
+def zone_name(zone):
+    """'Boise' and 'America' for America/Boise; 'UTC' and '' for UTC."""
+    parts = zone.replace("_", " ").split("/")
+    return parts[-1], " / ".join(parts[:-1])
+
+
 def clock_hours():
     try:
         with open(CLOCK_FILE) as f:
@@ -65,7 +82,7 @@ class Page(Gtk.Box):
         self.set_border_width(24)
         self.loading = True
         title = Gtk.Label(xalign=0)
-        title.set_markup(f"<span size='x-large' weight='bold'>{TITLE}</span>")
+        title.set_markup(f"<span size='x-large' weight='bold'>{GLib.markup_escape_text(TITLE)}</span>")
         self.pack_start(title, False, False, 0)
         self.now = Gtk.Label(xalign=0)
         self.pack_start(self.now, False, False, 4)
@@ -79,21 +96,13 @@ class Page(Gtk.Box):
         grid.attach(self.auto, 1, 0, 1, 1)
 
         grid.attach(Gtk.Label(label="Time zone", xalign=0), 0, 1, 1, 1)
-        # Type to find it: "Boise", "Denver", "London"...
-        self.zone = Gtk.ComboBoxText.new_with_entry()
-        zones = all_zones()
-        self.zones = set(zones)
-        for zone in zones:
-            self.zone.append(zone, zone)
-        completion = Gtk.EntryCompletion(model=self.zone.get_model(), text_column=0,
-                                         inline_completion=False, popup_completion=True)
-        completion.set_match_func(lambda c, key, it: key.lower() in c.get_model()[it][0].lower())
-        self.zone.get_child().set_completion(completion)
-        self.zone.set_active_id(current_zone())
-        self.zone.set_hexpand(True)
-        # Picked from the list, or typed/completed in full ("America/Boise").
-        self.zone.connect("changed", lambda c: self.set_zone(
-            c.get_active_id() or c.get_child().get_text().strip()))
+        # A button with the current zone. Click it for a search box over the
+        # list: type "Boise", "Denver", "London" or "-07" to narrow it down.
+        self.zone = Gtk.MenuButton(hexpand=True)
+        self.zone_label = Gtk.Label(xalign=0)
+        self.zone.add(self.zone_label)
+        self.zone.set_popover(self.zone_picker())
+        self.show_zone()
         grid.attach(self.zone, 1, 1, 1, 1)
 
         grid.attach(Gtk.Label(label="Clock on the taskbar", xalign=0), 0, 2, 1, 1)
@@ -112,6 +121,80 @@ class Page(Gtk.Box):
         self.timer = GLib.timeout_add_seconds(1, self.tick)
         self.connect("destroy", lambda *_: GLib.source_remove(self.timer))
 
+    def zone_picker(self):
+        zones = all_zones()
+        self.zones = set(zones)
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_border_width(8)
+        popover.add(box)
+        search = Gtk.SearchEntry(placeholder_text="Search for a city or time zone")
+        box.pack_start(search, False, False, 0)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroller.set_size_request(420, 320)
+        box.pack_start(scroller, True, True, 0)
+        rows = Gtk.ListBox()
+        rows.set_activate_on_single_click(True)
+        scroller.add(rows)
+        for zone in zones:
+            city, region = zone_name(zone)
+            offset = zone_offset(zone)
+            row = Gtk.ListBoxRow()
+            row.zone = zone
+            row.words = f"{zone} {city} {region} {offset}".lower().replace("_", " ")
+            line = Gtk.Box(spacing=8)
+            line.set_border_width(4)
+            line.pack_start(Gtk.Label(label=city, xalign=0), False, False, 0)
+            if region:
+                dim = Gtk.Label(label=region, xalign=0)
+                dim.set_opacity(0.6)
+                line.pack_start(dim, False, False, 0)
+            line.pack_end(Gtk.Label(label=offset), False, False, 0)
+            row.add(line)
+            rows.add(row)
+
+        def matches(row):
+            words = search.get_text().lower().split()
+            return all(w in row.words for w in words)
+        rows.set_filter_func(matches)
+
+        def first_row():
+            return next((r for r in rows.get_children() if matches(r)), None)
+
+        def pick(row):
+            if row:
+                popover.popdown()
+                self.set_zone(row.zone)
+
+        search.connect("search-changed", lambda *_: (rows.invalidate_filter(),
+                                                     scroller.get_vadjustment().set_value(0)))
+        search.connect("activate", lambda *_: pick(first_row()))   # Enter picks the top one
+        search.connect("stop-search", lambda *_: popover.popdown())
+        rows.connect("row-activated", lambda _l, row: pick(row))
+
+        def opened(*_):
+            search.set_text("")
+            search.grab_focus()
+            current = next((r for r in rows.get_children() if r.zone == current_zone()), None)
+            if current:
+                rows.select_row(current)
+                # Scroll it into the middle once the list has its size.
+                def scroll():
+                    adj = scroller.get_vadjustment()
+                    alloc = current.get_allocation()
+                    adj.set_value(max(0, alloc.y - (adj.get_page_size() - alloc.height) / 2))
+                    return False
+                GLib.idle_add(scroll)
+        popover.connect("show", opened)
+        box.show_all()
+        return popover
+
+    def show_zone(self):
+        zone = current_zone()
+        city, region = zone_name(zone)
+        text = f"{city} ({region})" if region else city or "Not set"
+        self.zone_label.set_text(f"{text}    {zone_offset(zone)}".rstrip())
+
     def tick(self):
         fmt = "%H:%M:%S" if clock_hours() == "24" else "%-I:%M:%S %p"
         self.now.set_markup(f"<span size='large'>{time.strftime(fmt)}</span>   "
@@ -128,11 +211,9 @@ class Page(Gtk.Box):
         result = timedatectl("set-timezone", zone)
         if not result or result.returncode != 0:
             self.show_problem("The time zone didn't change (it needs your password).")
-            self.loading = True
-            self.zone.set_active_id(current_zone())
-            self.loading = False
             return
         self.problem.hide()
+        self.show_zone()
         # The taskbar picks up the new zone when it restarts (a second later).
         subprocess.run(["pkill", "-f", r"\.local/bin/skornex-bar$"])
         self.tick()
