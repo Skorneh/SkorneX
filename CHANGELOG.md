@@ -3,6 +3,12 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.4
+- The Windows key shows the whole taskbar along with search over full-screen
+  games and videos, like Windows.
+- Date & time: search for your time zone by city or UTC offset instead of
+  scrolling through hundreds of them.
+
 ## 0.5.3
 - Dragging taskbar icons to reorder them follows the mouse; before, you had
   to drag far past where you wanted them.
