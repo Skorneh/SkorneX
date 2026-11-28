@@ -744,11 +744,13 @@ class VolumeOsd(Gtk.Window):
 
 class Catcher(Gtk.Window):
     """An invisible layer over everything but the taskbar while a flyout is
-    open. Clicking it closes the flyout, like clicking away on Windows."""
+    open. Clicking it closes the flyout, like clicking away on Windows. It's
+    above full-screen windows too, so clicking a game closes the flyout. It
+    stays out of the taskbar's reserved strip, so the taskbar is clickable."""
 
     def __init__(self, on_click):
         super().__init__()
-        make_layer(self, GtkLayerShell.Layer.TOP,
+        make_layer(self, GtkLayerShell.Layer.OVERLAY,
                    [GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT],
                    namespace="skornex-catcher")
@@ -1088,6 +1090,12 @@ class Bar(Gtk.Window):
             x, _ = self.tray_button.translate_coordinates(self, 0, 0)
             width = max(fly.get_preferred_width()[1], 1)
             fly.set_left(x + self.tray_button.get_allocated_width() // 2 - width // 2)
+        # A full-screen window (a game, a video) covers the taskbar, so bring it
+        # up with the flyout, like Windows. Any full-screen window counts: it
+        # covers the taskbar even while you use another window, and while a
+        # flyout has the keyboard there's no active window at all.
+        if any(w.is_fullscreen() and not w.is_minimized() for w in self.screen.get_windows()):
+            self.set_bar_layer(GtkLayerShell.Layer.OVERLAY)
         self.catcher.show_all()
         fly.show_all()
         fly.present()
@@ -1106,6 +1114,19 @@ class Bar(Gtk.Window):
                     button.get_style_context().remove_class("open")
         self.open_flyout = None
         self.catcher.hide()
+        self.set_bar_layer(GtkLayerShell.Layer.TOP)
+
+    def set_bar_layer(self, layer):
+        """Moves the taskbar above or below full-screen windows. labwc only
+        takes a new layer when the window reappears, so it's hidden and shown
+        again; that's why it only happens with a full-screen window, where the
+        taskbar is covered anyway (otherwise maximized windows would jump)."""
+        if GtkLayerShell.get_layer(self) == layer:
+            return
+        GtkLayerShell.set_layer(self, layer)
+        if self.get_mapped():
+            self.hide()
+            self.show()
 
     def on_flyout_key(self, _w, event):
         if event.keyval == Gdk.KEY_Escape:
