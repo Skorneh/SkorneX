@@ -37,6 +37,7 @@ import subprocess
 import sys
 import time
 
+import cairo
 import gi
 
 # If the bar ever crashes hard, print where (it lands in ~/.cache/skornex-bar.log).
@@ -200,6 +201,27 @@ def spawn(*cmd):
         pass
 
 
+# The taskbar's right-click menus that are open right now. They can't get the
+# keyboard, so they stay open until you click somewhere; opening a flyout with
+# the Windows key while one is open left the menu holding the mouse
+# underneath it. So opening a flyout closes them first, like Windows.
+open_menus = set()
+
+
+def track_menu(menu):
+    open_menus.add(menu)
+    menu.connect("deactivate", lambda m: open_menus.discard(m))
+
+
+def close_menus():
+    """Closes every open taskbar menu; True if there were any."""
+    menus = list(open_menus)
+    for menu in menus:
+        menu.popdown()
+    open_menus.clear()
+    return bool(menus)
+
+
 def after_menu(callback):
     """Run a right-click menu choice once the menu has fully closed. Acting
     while it's still closing (say, a new window popping up) can make Wayland
@@ -242,7 +264,13 @@ def main_monitor():
                     if o.get("name") == name and o.get("enabled")), None)
         chosen = next((m for m in monitors if pos and
                        (m.get_geometry().x, m.get_geometry().y) == pos), None)
+    found = chosen is not None
     chosen = chosen or display.get_primary_monitor() or (monitors[0] if monitors else None)
+    # Into ~/.cache/skornex-bar.log, so a taskbar on the wrong screen can be explained.
+    geometry = lambda m: (m.get_geometry().x, m.get_geometry().y) if m else None
+    print(f"{time.strftime('%H:%M:%S')} main display {name or '(none set)'}: "
+          + ("found" if found else "not found, using the first one")
+          + f" at {geometry(chosen)}; monitors {[geometry(m) for m in monitors]}", flush=True)
     _main_monitor.append(chosen)
     return chosen
 
@@ -416,8 +444,37 @@ class AppButton(Gtk.Button):
         except (GLib.Error, TypeError, ValueError) as e:
             print(f"skornex-bar: {getattr(fn, '__name__', fn)} failed: {e}", file=sys.stderr, flush=True)
 
-    def menu(self, event):
+    # The right-click menu opens when the button is let go, like Windows.
+    # Opened on the press, GTK closes it again if you let go more than half a
+    # second later, so a slow right-click seemed to do nothing.
+    #
+    # An open flyout (search, the clock...) is in a higher layer than the
+    # taskbar, so the menu would open underneath it: it's closed on the
+    # press. That moves the keyboard to another window, and labwc closes a
+    # menu that opens before that settles, so the menu waits at least 150 ms.
+    # Over a full-screen window the taskbar stays up while the menu is open,
+    # then goes back under it.
+    def menu_press(self):
+        self.menu_flyout_closed = None
+        if self.bar.open_flyout:
+            self.bar.close_flyout(keep_bar=True)
+            self.menu_flyout_closed = time.monotonic()
+
+    def menu_release(self, event):
+        closed = getattr(self, "menu_flyout_closed", None)
+        self.menu_flyout_closed = None
+        if closed is None:
+            self.show_menu(event)
+            return
+        wait = max(0, int(150 - (time.monotonic() - closed) * 1000))
+        event = event.copy()
+        GLib.timeout_add(wait, lambda: self.show_menu(event, kept=True) and False)
+
+    def show_menu(self, event, kept=False):
         menu = Gtk.Menu()
+        if kept:
+            menu.connect("deactivate", lambda *_: GLib.timeout_add(
+                200, lambda: (self.bar.open_flyout or self.bar.set_bar_layer(GtkLayerShell.Layer.TOP), False)[-1]))
         name = self.info.get_display_name() if self.info else (self.windows[0].get_name() if self.windows else "")
 
         def item(text, callback):
@@ -439,12 +496,13 @@ class AppButton(Gtk.Button):
         menu.show_all()
         menu.attach_to_widget(self, None)
         menu.set_property("rect-anchor-dy", -8)      # a little gap above the bar, like the panels
+        track_menu(menu)
         menu.popup_at_widget(self, Gdk.Gravity.NORTH, Gdk.Gravity.SOUTH, event)
 
     # Drag to reorder; the button follows the mouse.
     def on_press(self, _w, event):
         if event.button == 3:
-            self.menu(event)
+            self.menu_press()
             return True
         if event.button == 1:
             self.press_x = event.x
@@ -469,6 +527,9 @@ class AppButton(Gtk.Button):
         return True
 
     def on_release(self, _w, event):
+        if event.button == 3:
+            self.menu_release(event)
+            return True
         if event.button == 2:
             self.bar.apps.launch(self.key)
         elif event.button == 1 and self.press_x is not None:
@@ -613,6 +674,7 @@ class Tray:
         menu.show_all()
         menu.attach_to_widget(widget, None)
         menu.set_property("rect-anchor-dy", -8)
+        track_menu(menu)
         menu.popup_at_widget(widget, Gdk.Gravity.NORTH, Gdk.Gravity.SOUTH, event)
 
     def menu_layout(self, item):
@@ -746,7 +808,11 @@ class Catcher(Gtk.Window):
     """An invisible layer over everything but the taskbar while a flyout is
     open. Clicking it closes the flyout, like clicking away on Windows. It's
     above full-screen windows too, so clicking a game closes the flyout. It
-    stays out of the taskbar's reserved strip, so the taskbar is clickable."""
+    stays out of the taskbar's reserved strip, so the taskbar is clickable.
+
+    It shares the overlay layer with the flyouts, and labwc doesn't always
+    stack it below them, so it has a hole where the open flyout is: clicks
+    there reach the flyout either way (see Bar.update_catcher_hole)."""
 
     def __init__(self, on_click):
         super().__init__()
@@ -757,7 +823,7 @@ class Catcher(Gtk.Window):
         make_transparent(self)
         self.get_style_context().add_class("catcher")
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        self.connect("button-press-event", lambda *_: on_click())
+        self.connect("button-press-event", lambda _w, event: on_click(event))
 
 
 # --- The bar ----------------------------------------------------------------
@@ -779,7 +845,7 @@ class Bar(Gtk.Window):
         self.buttons = {}
         self.last_active = {}
         self.open_flyout = None
-        self.catcher = Catcher(self.close_flyout)
+        self.catcher = Catcher(self.on_catcher_click)
 
         row = Gtk.Box(spacing=2)
         self.add(row)
@@ -829,7 +895,12 @@ class Bar(Gtk.Window):
             "clipboard": Flyout(keyboard=True),
             "battery": Flyout(),
         }
+        self.catcher.connect("size-allocate", lambda *_: self.update_catcher_hole())
+        # Hiding the catcher throws away its Wayland surface, and GTK doesn't
+        # always give the new one the hole again, so it's set on every show.
+        self.catcher.connect("map", lambda *_: GLib.idle_add(self.update_catcher_hole))
         for fly in self.flyouts.values():
+            fly.connect("size-allocate", lambda *_: self.update_catcher_hole())
             fly.connect("key-press-event", self.on_flyout_key)
 
         # Windows.
@@ -1078,6 +1149,11 @@ class Bar(Gtk.Window):
     # --- Flyouts ---
 
     def toggle(self, name):
+        if close_menus():
+            # Opened right after the menu closes, labwc can hand the mouse
+            # back to the menu that's going away; wait for it to be gone.
+            GLib.timeout_add(150, lambda: self.toggle(name) and False)
+            return
         if self.open_flyout == name:
             self.close_flyout()
             return
@@ -1100,13 +1176,55 @@ class Bar(Gtk.Window):
         fly.show_all()
         fly.present()
         self.open_flyout = name
+        self.update_catcher_hole()
         for key, button in list(self.flyout_buttons.items()) + [("search", self.search_button)]:
             if not button:
                 continue
             ctx = button.get_style_context()
             (ctx.add_class if key == name else ctx.remove_class)("open")
 
-    def close_flyout(self):
+    def update_catcher_hole(self):
+        """Lets clicks on the open flyout through the catcher. Both are placed
+        in the same area (the screen minus the taskbar's strip), so the
+        flyout's spot follows from its edges and margins."""
+        fly = self.flyouts.get(self.open_flyout)
+        width, height = self.catcher.get_allocated_width(), self.catcher.get_allocated_height()
+        if not fly or width <= 1 or height <= 1:
+            return
+        w, h = fly.get_allocated_width(), fly.get_allocated_height()
+        if fly.side == "right":
+            x = width - GtkLayerShell.get_margin(fly, GtkLayerShell.Edge.RIGHT) - w
+        else:
+            x = GtkLayerShell.get_margin(fly, GtkLayerShell.Edge.LEFT)
+        y = height - GtkLayerShell.get_margin(fly, GtkLayerShell.Edge.BOTTOM) - h
+        region = cairo.Region(cairo.RectangleInt(0, 0, width, height))
+        region.subtract(cairo.Region(cairo.RectangleInt(x, y, w, h)))
+        # Cleared first so GTK always sends the hole to the compositor, even
+        # when it's the same as last time.
+        self.catcher.input_shape_combine_region(None)
+        self.catcher.input_shape_combine_region(region)
+        # GTK only sends the hole to labwc along with a repaint, and the
+        # catcher is invisible, so nothing else repaints it: without this the
+        # hole sometimes never arrives and the whole flyout can't be clicked.
+        self.catcher.queue_draw()
+        self.catcher_hole = (x, y, w, h)
+        return False  # when run from GLib.idle_add, run once
+
+    def on_catcher_click(self, event):
+        """Clicking away closes the flyout. A click that lands on the flyout's
+        own spot means the hole wasn't there yet: it's set again instead, so
+        the next click reaches the flyout."""
+        x, y, w, h = getattr(self, "catcher_hole", (0, 0, 0, 0))
+        if self.open_flyout and x <= event.x < x + w and y <= event.y < y + h:
+            print(f"{time.strftime('%H:%M:%S')} click on the {self.open_flyout} flyout reached the "
+                  "catcher; setting its hole again", flush=True)
+            self.update_catcher_hole()
+            return
+        self.close_flyout()
+
+    def close_flyout(self, keep_bar=False):
+        """keep_bar: leave the taskbar above full-screen windows, for a
+        right-click menu that opens from it next (see AppButton.menu)."""
         if self.open_flyout:
             self.flyouts[self.open_flyout].hide()
             for button in list(self.flyout_buttons.values()) + [self.search_button]:
@@ -1114,7 +1232,8 @@ class Bar(Gtk.Window):
                     button.get_style_context().remove_class("open")
         self.open_flyout = None
         self.catcher.hide()
-        self.set_bar_layer(GtkLayerShell.Layer.TOP)
+        if not keep_bar:
+            self.set_bar_layer(GtkLayerShell.Layer.TOP)
 
     def set_bar_layer(self, layer):
         """Moves the taskbar above or below full-screen windows. labwc only
