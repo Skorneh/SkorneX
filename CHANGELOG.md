@@ -3,6 +3,21 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.5
+- Settings has a search box (Ctrl+F) that finds any setting, like "push to
+  talk" or "refresh rate", and jumps to it.
+- Sound: push to talk that works in games and every app (hold Caps Lock or a
+  key you pick; the mic stays muted otherwise). Off unless you turn it on.
+- Sound: "Only use this microphone" turns the others off, so apps wait for
+  your mic when it's unplugged instead of switching to the webcam's.
+- Sound: turning the microphone cap on or off no longer cuts the sound in
+  TeamSpeak, Discord and other apps.
+- Region screenshots freeze the screen first, so menus stay in the shot.
+- Taskbar: search can always be clicked; right-click menus on apps open every
+  time, also with search open; the Windows key closes an open menu.
+- The PC no longer lands on the text login when the NVIDIA driver is slow to
+  load, and the saved screen layout applies even if a monitor is late.
+
 ## 0.5.4
 - The Windows key shows the whole taskbar along with search over full-screen
   games and videos, like Windows.
