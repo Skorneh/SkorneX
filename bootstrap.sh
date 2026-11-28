@@ -41,6 +41,7 @@ Settings modules. Each one is its own small app; pick only the ones you want
   personalize  Color themes, accent color, wallpaper
   datetime     Time zone, automatic time, 12- or 24-hour clock
   defaults     Which apps open links, pictures, videos, music...
+  startup      Which apps start when you log in
   account      Your user name, change your password
   updates      See and install updates
 EOF

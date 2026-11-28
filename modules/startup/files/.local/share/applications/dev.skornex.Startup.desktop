@@ -1,0 +1,11 @@
+[Desktop Entry]
+# SkorneX Settings module (startup). Named after the window's app ID so the
+# taskbar and title bar find its icon.
+Type=Application
+Name=Startup apps
+Comment=Which apps start when you log in.
+Exec=skornex-startup
+Icon=system-run
+StartupWMClass=dev.skornex.Startup
+Categories=Settings;
+Keywords=startup;autostart;login;start up;boot;

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""skornex-autostart: starts your startup apps when you log in.
+
+    skornex-autostart          start them (labwc's autostart runs this)
+    skornex-autostart --list   print them as JSON (the Startup apps page uses it)
+
+Startup apps are the standard Linux ones: .desktop files in
+~/.config/autostart (yours, and where apps put themselves when you tick their
+own "start when I log in" option, like Discord or Steam) and in
+/etc/xdg/autostart (the system's). A file of yours with the same name as a
+system one replaces it; Hidden=true (or X-GNOME-Autostart-enabled=false)
+turns one off. Apps meant only for other desktops (OnlyShowIn/NotShowIn) and
+apps that aren't installed (TryExec) are left out, like every desktop does.
+
+Also left out: the few that SkorneX already does itself (SKORNEX_DOES), so
+they don't run twice. What started is logged in ~/.cache/skornex-autostart.log.
+
+SkorneX's own login pieces (your screen layout, push to talk...) live in
+~/.config/skornex/autostart.d instead, run by labwc's autostart.
+"""
+
+import glob
+import json
+import os
+import sys
+import time
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+try:   # newer GLib moved it here; Gio's copy still works but warns
+    gi.require_version("GioUnix", "2.0")
+    from gi.repository.GioUnix import DesktopAppInfo  # noqa: E402
+except (ImportError, ValueError):
+    DesktopAppInfo = Gio.DesktopAppInfo
+
+USER_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
+SYSTEM_DIRS = [os.path.join(d, "autostart")
+               for d in (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":") if d]
+
+# Program -> why SkorneX skips it.
+SKORNEX_DOES = {
+    "xapp-sn-watcher": "the taskbar shows tray icons itself",
+    "polkit-gnome-authentication-agent-1": "SkorneX starts its password prompt itself",
+    "lxpolkit": "SkorneX starts its password prompt itself",
+    "polkit-kde-authentication-agent-1": "SkorneX starts its password prompt itself",
+    "polkit-mate-authentication-agent-1": "SkorneX starts its password prompt itself",
+}
+
+
+def program(info):
+    """The program a .desktop file runs, without its path or arguments."""
+    argv = GLib.shell_parse_argv(info.get_string("Exec") or "")[1] if info.get_string("Exec") else []
+    if argv and argv[0] == "env":   # env VAR=value program ...
+        argv = [a for a in argv[1:] if "=" not in a]
+    return os.path.basename(argv[0]) if argv else ""
+
+
+def entries():
+    """Every startup app: [{file, name, icon, comment, enabled, yours,
+    system, skipped}], yours taking the place of a system one with the same
+    file name. skipped says why one never runs here (None if it can)."""
+    files = {}
+    for directory in reversed(SYSTEM_DIRS):   # earlier XDG_CONFIG_DIRS win
+        for path in glob.glob(os.path.join(directory, "*.desktop")):
+            files[os.path.basename(path)] = path
+    system = set(files)
+    for path in glob.glob(os.path.join(USER_DIR, "*.desktop")):
+        files[os.path.basename(path)] = path
+    found = []
+    for name, path in sorted(files.items()):
+        keyfile = GLib.KeyFile()
+        try:
+            keyfile.load_from_file(path, GLib.KeyFileFlags.NONE)
+        except GLib.Error:
+            continue
+
+        def get(key, kind="string"):
+            try:
+                return getattr(keyfile, "get_" + kind)("Desktop Entry", key)
+            except GLib.Error:
+                return None
+
+        hidden = get("Hidden", "boolean") is True
+        enabled = not hidden and get("X-GNOME-Autostart-enabled", "boolean") is not False
+        info = DesktopAppInfo.new_from_filename(path)   # None if TryExec is missing
+        skipped = None
+        if info is None:
+            skipped = "not installed"
+        elif not info.get_show_in(None):
+            skipped = "only for other desktops"
+        elif program(info) in SKORNEX_DOES:
+            skipped = SKORNEX_DOES[program(info)]
+        icon = info.get_icon() if info else None
+        found.append({
+            "file": name,
+            "path": path,
+            "name": (info.get_display_name() if info else get("Name")) or name[:-len(".desktop")],
+            "icon": icon.to_string() if icon else "application-x-executable",
+            "comment": (info.get_description() if info else get("Comment")) or "",
+            "enabled": enabled,
+            "yours": path.startswith(USER_DIR + os.sep),
+            "system": name in system,
+            "skipped": skipped,
+        })
+    return found
+
+
+def log(text):
+    path = os.path.expanduser("~/.cache/skornex-autostart.log")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
+
+
+def start_all():
+    # Apps with tray icons look for the taskbar's tray when they start, so
+    # give the taskbar a moment to be up first.
+    time.sleep(3)
+    for entry in entries():
+        if not entry["enabled"] or entry["skipped"]:
+            continue
+        info = DesktopAppInfo.new_from_filename(entry["path"])
+        try:
+            info.launch([], None)
+            log(f"started {entry['name']} ({entry['file']})")
+        except GLib.Error as e:
+            log(f"couldn't start {entry['name']} ({entry['file']}): {e.message}")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--list"]:
+        print(json.dumps(entries(), indent=1))
+    else:
+        start_all()

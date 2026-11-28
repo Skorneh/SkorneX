@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""SkorneX Startup apps: which apps start when you log in, like the Startup
+tab in Windows' Task Manager.
+
+    skornex-startup     open it on its own (or search "Startup apps")
+
+It's also a page in Settings (skornex-settings). It shows the standard Linux
+startup list (~/.config/autostart and /etc/xdg/autostart), so apps that add
+themselves (Discord's or Steam's own "start when I log in" option) show up
+here too. Turning one off writes Hidden=true into your own copy of its file
+in ~/.config/autostart; "Add an app" copies an installed app's .desktop file
+there. skornex-autostart reads the list and starts them at login. Not shown:
+the few SkorneX already runs itself (the tray, the password prompt), and
+system housekeeping that should always run (NOT_LISTED; it still starts).
+"""
+
+import json
+import os
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+TITLE = "Startup apps"
+ICON = "system-run"
+APP_ID = "dev.skornex.Startup"
+USER_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
+LISTER = os.path.expanduser("~/.local/bin/skornex-autostart")
+# System housekeeping that should always run, so it isn't listed (it still
+# starts at login), like Windows keeps its own background parts out of its
+# Startup tab. xdg-user-dirs: makes sure Documents, Downloads, Pictures,
+# Music and Videos exist, so apps save in the right place.
+NOT_LISTED = {"xdg-user-dirs.desktop"}
+
+
+def startup_apps():
+    """The startup list from skornex-autostart, without the ones that never
+    run here (other desktops' helpers, ones SkorneX does itself), or None if
+    skornex-autostart is missing (SkorneX older than this module)."""
+    try:
+        out = subprocess.run([LISTER, "--list"], capture_output=True, text=True, timeout=10).stdout
+        return [e for e in json.loads(out) if not e["skipped"] and e["file"] not in NOT_LISTED]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def load(path):
+    keyfile = GLib.KeyFile()
+    keyfile.load_from_file(path, GLib.KeyFileFlags.KEEP_COMMENTS | GLib.KeyFileFlags.KEEP_TRANSLATIONS)
+    return keyfile
+
+
+def has(keyfile, key):
+    try:
+        return key in keyfile.get_keys("Desktop Entry")[0]
+    except GLib.Error:
+        return False
+
+
+def save(keyfile, name):
+    os.makedirs(USER_DIR, exist_ok=True)
+    keyfile.save_to_file(os.path.join(USER_DIR, name))
+
+
+def set_enabled(entry, on):
+    """Turns a startup app on or off in your own copy of its file (a system
+    one gets a copy of yours, which takes its place)."""
+    keyfile = load(entry["path"])
+    keyfile.set_boolean("Desktop Entry", "Hidden", not on)
+    if has(keyfile, "X-GNOME-Autostart-enabled"):
+        keyfile.set_boolean("Desktop Entry", "X-GNOME-Autostart-enabled", on)
+    save(keyfile, entry["file"])
+
+
+def add_app(info):
+    """Makes an installed app start at login: a copy of its .desktop file."""
+    keyfile = load(info.get_filename())
+    for key in ("Hidden", "NoDisplay"):
+        if has(keyfile, key):
+            keyfile.remove_key("Desktop Entry", key)
+    save(keyfile, info.get_id())
+
+
+class AddDialog(Gtk.Dialog):
+    """Pick an installed app to start at login, with a search box."""
+
+    def __init__(self, parent, already):
+        super().__init__(title="Add a startup app", transient_for=parent, modal=True)
+        self.set_default_size(420, 520)
+        self.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        self.add_button("Add", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        self.set_response_sensitive(Gtk.ResponseType.OK, False)
+        box = self.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(12)
+        self.search = Gtk.SearchEntry(placeholder_text="Find an app")
+        self.search.connect("search-changed", lambda _e: self.list.invalidate_filter())
+        self.search.connect("activate", lambda _e: self.pick_first())
+        box.pack_start(self.search, False, False, 0)
+        self.list = Gtk.ListBox()
+        self.list.set_filter_func(self.matches)
+        self.list.connect("row-selected", lambda _l, row: self.set_response_sensitive(
+            Gtk.ResponseType.OK, row is not None))
+        self.list.connect("row-activated", lambda *_: self.response(Gtk.ResponseType.OK))
+        apps = sorted((a for a in Gio.AppInfo.get_all() if a.should_show() and a.get_id() not in already),
+                      key=lambda a: a.get_display_name().lower())
+        for info in apps:
+            row = Gtk.ListBoxRow()
+            row.info = info
+            line = Gtk.Box(spacing=10, margin=6)
+            line.pack_start(Gtk.Image.new_from_gicon(info.get_icon() or Gio.ThemedIcon.new(
+                "application-x-executable"), Gtk.IconSize.LARGE_TOOLBAR), False, False, 0)
+            line.pack_start(Gtk.Label(label=info.get_display_name(), xalign=0), True, True, 0)
+            row.add(line)
+            self.list.add(row)
+        scroller = Gtk.ScrolledWindow(vexpand=True)
+        scroller.add(self.list)
+        box.pack_start(scroller, True, True, 0)
+        self.show_all()
+
+    def matches(self, row):
+        words = self.search.get_text().lower().split()
+        text = (row.info.get_display_name() + " " + (row.info.get_description() or "")).lower()
+        return all(w in text for w in words)
+
+    def pick_first(self):
+        row = next((r for r in self.list.get_children() if r.get_child_visible()), None)
+        if row:
+            self.list.select_row(row)
+            self.response(Gtk.ResponseType.OK)
+
+    def chosen(self):
+        row = self.list.get_selected_row()
+        return row.info if row else None
+
+
+class Page(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.set_border_width(24)
+        title = Gtk.Label(xalign=0)
+        title.set_markup(f"<span size='x-large' weight='bold'>{TITLE}</span>")
+        self.pack_start(title, False, False, 0)
+        about = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+        about.set_text("These start when you log in. Apps also add themselves here when you turn on "
+                       "their own \"start when I log in\" option, like Discord or Steam.")
+        about.set_opacity(0.7)
+        self.pack_start(about, False, False, 0)
+        buttons = Gtk.Box(spacing=8)
+        add = Gtk.Button(label="Add an app")
+        add.connect("clicked", lambda _b: self.add())
+        buttons.pack_start(add, False, False, 0)
+        refresh = Gtk.Button(label="Refresh")
+        refresh.connect("clicked", lambda _b: self.fill())
+        buttons.pack_start(refresh, False, False, 0)
+        self.pack_start(buttons, False, False, 4)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.list.get_style_context().add_class("frame")
+        self.pack_start(self.list, False, False, 0)
+        self.note = Gtk.Label(xalign=0, wrap=True)
+        self.note.set_no_show_all(True)
+        self.pack_start(self.note, False, False, 0)
+        self.fill()
+        # Apps add and remove themselves (Discord's own option, say) while
+        # this is open: watch the folder and show changes right away.
+        self.pending = None
+        os.makedirs(USER_DIR, exist_ok=True)   # a folder that isn't there can't be watched
+        self.monitor = Gio.File.new_for_path(USER_DIR).monitor_directory(Gio.FileMonitorFlags.NONE, None)
+        self.monitor.connect("changed", lambda *_: self.fill_soon())
+        self.connect("map", lambda *_: self.fill())
+
+    def fill_soon(self):
+        """Several changes come at once (and this page makes some itself),
+        so the list is redrawn once they've settled."""
+        if self.pending:
+            GLib.source_remove(self.pending)
+        self.pending = GLib.timeout_add(300, lambda: (setattr(self, "pending", None), self.fill(), False)[-1])
+
+    def fill(self):
+        for row in self.list.get_children():
+            row.destroy()
+        apps = startup_apps()
+        self.list.set_visible(bool(apps))
+        if apps is None:
+            self.note.set_text("Update SkorneX to use this page (skornex-autostart is missing).")
+        else:
+            self.note.set_text("" if apps else "No startup apps yet. Add one with \"Add an app\".")
+        self.note.set_visible(not apps)
+        for entry in apps or []:
+            row = Gtk.ListBoxRow(activatable=False)
+            line = Gtk.Box(spacing=12, margin=10)
+            line.pack_start(Gtk.Image.new_from_gicon(Gio.Icon.new_for_string(entry["icon"]),
+                                                     Gtk.IconSize.DND), False, False, 0)
+            text = Gtk.Label(xalign=0, wrap=True)
+            text.set_markup(f"{GLib.markup_escape_text(entry['name'])}"
+                            + (f"\n<span alpha='60%' size='small'>{GLib.markup_escape_text(entry['comment'])}"
+                               "</span>" if entry["comment"] else ""))
+            line.pack_start(text, True, True, 0)
+            if entry["yours"] and not entry["system"]:
+                remove = Gtk.Button.new_from_icon_name("user-trash-symbolic", Gtk.IconSize.BUTTON)
+                remove.set_tooltip_text("Remove from startup")
+                remove.set_relief(Gtk.ReliefStyle.NONE)
+                remove.set_valign(Gtk.Align.CENTER)
+                remove.connect("clicked", lambda _b, e=entry: self.remove(e))
+                line.pack_start(remove, False, False, 0)
+            switch = Gtk.Switch(active=entry["enabled"], valign=Gtk.Align.CENTER)
+            switch.set_tooltip_text("Start when you log in")
+            switch.connect("notify::active", lambda w, _p, e=entry: self.toggle(e, w.get_active()))
+            line.pack_start(switch, False, False, 0)
+            row.add(line)
+            self.list.add(row)
+        self.list.show_all()
+
+    def toggle(self, entry, on):
+        try:
+            set_enabled(entry, on)
+        except GLib.Error as e:
+            self.note.set_text(f"Couldn't change {entry['name']}: {e.message}")
+            self.note.show()
+
+    def remove(self, entry):
+        try:
+            os.remove(entry["path"])
+        except OSError:
+            pass
+        self.fill()
+
+    def add(self):
+        already = {e["file"] for e in startup_apps() or []}
+        dialog = AddDialog(self.get_toplevel(), already)
+        if dialog.run() == Gtk.ResponseType.OK and dialog.chosen():
+            try:
+                add_app(dialog.chosen())
+            except GLib.Error as e:
+                self.note.set_text(f"Couldn't add it: {e.message}")
+                self.note.show()
+        dialog.destroy()
+        self.fill()
+
+
+def main():
+    GLib.set_prgname(APP_ID)
+    app = Gtk.Application(application_id=APP_ID)
+
+    def activate(app):
+        if app.get_windows():
+            app.get_windows()[0].present()
+            return
+        Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme = True
+        window = Gtk.ApplicationWindow(application=app, title=TITLE)
+        window.set_default_size(620, 520)
+        window.set_icon_name(ICON)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(Page())
+        window.add(scroller)
+        # Ctrl+W closes it, like most windows.
+        close = Gio.SimpleAction.new("close", None)
+        close.connect("activate", lambda *_: window.close())
+        window.add_action(close)
+        app.set_accels_for_action("win.close", ["<Ctrl>w"])
+        window.show_all()
+    app.connect("activate", activate)
+    sys.exit(app.run(sys.argv))
+
+
+if __name__ == "__main__":
+    main()

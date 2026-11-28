@@ -220,6 +220,7 @@ remove one without touching the others.
 | `personalize` | Personalize | Color themes (Graphite, Midnight, Forest, Plum, Ember), or pick each color yourself (background, menus, text, accent, and more), and a desktop wallpaper. |
 | `datetime` | Date & time | Time zone (type a city to find it), set the time automatically, 12- or 24-hour clock on the taskbar. |
 | `defaults` | Default apps | Which app opens web links, email links, folders, text, pictures, videos, music, PDFs and zip files. |
+| `startup` | Startup apps | Which apps start when you log in, each with an on/off switch, plus Add an app. Apps that add themselves (Discord's or Steam's own "start when I log in" option) show up here too. |
 | `account` | Account | Your name, and changing your password (the one for the lock screen, sudo and logging in). |
 | `updates` | Updates | What's waiting to be updated (system, AUR apps, SkorneX itself), one button to install, and an optional reminder at login. |
 
@@ -293,8 +294,11 @@ search right away.
   changes in `~/.config/skornex/labwc/*.xml` (a file there only needs the
   parts it changes). Edit one of those, never `rc.xml`, then
   run `skornex-labwc` in Terminal to rebuild and reload.
-- **Startup apps:** put a script in `~/.config/skornex/autostart.d/` (make it
-  executable); it runs every time you log in.
+- **Startup apps:** the Startup apps module. SkorneX starts everything in the
+  standard `~/.config/autostart` list at login (`skornex-autostart`), so apps'
+  own "start when I log in" options work too. For a command instead of an
+  app, put a script in `~/.config/skornex/autostart.d/` (make it executable);
+  it runs every time you log in.
 - **Terminal:** your own settings in `~/.config/kitty/local.conf`, your own
   aliases in `~/.bashrc.local`.
 
