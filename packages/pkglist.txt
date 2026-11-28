@@ -48,6 +48,7 @@ libxfce4windowing
 wl-clipboard
 grim
 slurp
+hyprpicker
 
 # --- Clipboard history (Win+V) ---
 cliphist

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# skornex-screenshot region  drag a box, copy to clipboard
+# skornex-screenshot region  drag a box, copy to clipboard (the screen freezes
+#                            first, like Windows: menus stay open in the shot)
 # skornex-screenshot full    whole screen, copy to clipboard
 # skornex-screenshot window  the window you're using, copy to clipboard
 # skornex-screenshot save    whole screen, saved to ~/Pictures/Screenshots
@@ -50,6 +51,16 @@ EOF
 
 case "${1:-region}" in
     region)
+        # Freeze the screen first, the way grimblast does: hyprpicker covers
+        # every monitor (-r) with a still picture of it (-z: no zoom lens), so
+        # a right-click menu or a tooltip stays in the picture even though
+        # dragging the box closes it. grim then captures that still picture.
+        if command -v hyprpicker >/dev/null; then
+            hyprpicker -r -z >/dev/null 2>&1 &
+            freeze=$!
+            trap 'kill "$freeze" 2>/dev/null' EXIT
+            sleep 0.2
+        fi
         area="$(slurp)" || exit 0
         grim -g "$area" - | wl-copy --type image/png
         notify-send -t 2000 "Screenshot" "Copied to clipboard" ;;
