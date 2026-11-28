@@ -59,6 +59,18 @@ if ((${#drivers[@]} + ${#aur_drivers[@]})); then
     if ((${#aur_drivers[@]})); then paru -S --needed --noconfirm "${aur_drivers[@]}"; fi
 fi
 
+# Load the NVIDIA driver early in boot (from the initramfs), so it's ready
+# before the desktop starts. Otherwise it can take seconds after the login
+# starts, and the PC lands on the plain text login instead of the lock screen.
+if grep -qi nvidia <<<"$gpus" && command -v mkinitcpio >/dev/null; then
+    info "Loading the NVIDIA driver early in boot..."
+    sudo install -d /etc/mkinitcpio.conf.d
+    printf '%s\n' '# Added by SkorneX gaming.sh: load the NVIDIA driver early in boot.' \
+        'MODULES+=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)' |
+        sudo tee /etc/mkinitcpio.conf.d/skornex-nvidia.conf >/dev/null
+    sudo mkinitcpio -P
+fi
+
 # --- 3. Gaming packages ---
 info "Installing Steam, Lutris, GameMode, MangoHud and Discord..."
 mapfile -t pkgs < <(read_list "$REPO_DIR/packages/gaming.txt")

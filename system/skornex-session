@@ -3,4 +3,23 @@
 # Adds ~/.local/bin to PATH first, so everything started on the desktop
 # (apps, Files, keyboard shortcuts) can find the SkorneX tools.
 export PATH="$HOME/.local/bin:$PATH"
+
+# At boot greetd can get here before the graphics driver has loaded (NVIDIA
+# takes a few seconds). Until it has, there's only the firmware's stand-in
+# screen (simple-framebuffer), labwc quits, and greetd falls back to its plain
+# text login. So wait, up to 15 seconds, for a real graphics driver.
+real_gpu() {
+    for card in /sys/class/drm/card[0-9]*; do
+        [ -e "$card/device/driver" ] || continue
+        driver=$(basename "$(readlink -f "$card/device/driver")")
+        [ "$driver" != simple-framebuffer ] && return 0
+    done
+    return 1
+}
+tries=0
+while ! real_gpu && [ "$tries" -lt 30 ]; do
+    sleep 0.5
+    tries=$((tries + 1))
+done
+
 exec labwc "$@"

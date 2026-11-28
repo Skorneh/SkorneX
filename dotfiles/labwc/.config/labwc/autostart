@@ -11,7 +11,16 @@ fi
 
 # Your screen layout (from Display settings) first, so the taskbar and the
 # desktop start on the right monitors.
-[ -x ~/.config/skornex/autostart.d/display ] && ~/.config/skornex/autostart.d/display >/dev/null 2>&1
+# A monitor can show up a few seconds after login (NVIDIA DisplayPort ones
+# especially), and then the layout can't be applied, so it tries again every
+# second, for up to 10 seconds.
+if [ -x ~/.config/skornex/autostart.d/display ]; then
+    tries=0
+    until ~/.config/skornex/autostart.d/display >/dev/null 2>&1 || [ "$tries" -ge 10 ]; do
+        sleep 1
+        tries=$((tries + 1))
+    done
+fi
 
 # SkorneXBar (taskbar) and SkorneXDesktop (Recycle Bin). If either ever
 # crashes it starts again a second later, and what went wrong is saved in
