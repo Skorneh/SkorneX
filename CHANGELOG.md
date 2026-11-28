@@ -3,6 +3,14 @@
 What changed in each SkorneX version. Updates shows the installed version and
 the newest one; each version is also a release on GitHub.
 
+## 0.5.6
+- New Startup apps settings: choose which apps start when you log in, like
+  Task Manager's Startup tab. Apps' own "start when I log in" options (Discord,
+  Steam) now work too.
+- Search can be clicked again after closing it by clicking a full-screen game
+  or anywhere else; before, it stopped responding until the taskbar restarted.
+- Updating no longer stops with "stowing files would cause conflicts".
+
 ## 0.5.5
 - Settings has a search box (Ctrl+F) that finds any setting, like "push to
   talk" or "refresh rate", and jumps to it.
