@@ -119,7 +119,10 @@ def search(index, query):
 
 
 def load_page(info):
-    """Imports a module's program and builds its Page."""
+    """Imports a module's program and builds its Page. No compiled copy
+    (__pycache__) is written next to it in ~/.local/bin: the module's files
+    are links into the repo, and a stray file there can block linking them."""
+    sys.dont_write_bytecode = True
     path = shutil.which(info["program"]) or os.path.join(BIN, info["program"])
     name = "skornex_module_" + info["name"]
     loader = importlib.machinery.SourceFileLoader(name, path)

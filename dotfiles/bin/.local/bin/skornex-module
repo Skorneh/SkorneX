@@ -62,7 +62,7 @@ add() {
     fi
     for name in $(names_from_args "$@"); do
         exists "$name" || continue
-        stow --dir="$modules/$name" --target="$HOME" --no-folding --restow files
+        stow --dir="$modules/$name" --target="$HOME" --no-folding --ignore=__pycache__ --restow files
         echo "Added: $(field "$name" Title) settings"
     done
 }
@@ -71,7 +71,7 @@ remove() {
     local name
     for name in $(names_from_args "$@"); do
         if installed "$name"; then
-            stow --dir="$modules/$name" --target="$HOME" --delete files
+            stow --dir="$modules/$name" --target="$HOME" --ignore=__pycache__ --delete files
             echo "Removed: $(field "$name" Title) settings"
         fi
     done

@@ -120,7 +120,7 @@ for pkg_dir in "$REPO_DIR"/dotfiles/*/; do
             warn "Moved existing ~/$rel to $backup/"
         fi
     done < <(find "$pkg_dir" -type f -print0)
-    stow --dir="$REPO_DIR/dotfiles" --target="$HOME" --no-folding --restow "$pkg"
+    stow --dir="$REPO_DIR/dotfiles" --target="$HOME" --no-folding --ignore=__pycache__ --restow "$pkg"
 done
 # Your taskbar pins are your own file. Older SkorneX versions linked it into
 # the repo; turn that into a real file (keeping your pins) and put the repo's
