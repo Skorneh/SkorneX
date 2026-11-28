@@ -9,17 +9,34 @@ and a record-and-play-back test.
 
 It's also a page in Settings (skornex-settings). Everything changes right
 away; PipeWire remembers it. The cap is a limiter (swh-plugins) that sits
-between your real microphone and apps: ~/.config/pipewire/pipewire.conf.d/
-90-skornex-mic-cap.conf adds "Microphone (volume capped)", which becomes the
-default microphone while the cap is on.
+between your real microphone and apps: "Microphone (volume capped)", which
+becomes the default microphone while the cap is on. It runs as its own small
+PipeWire process (pipewire -c ~/.config/skornex/mic-cap.conf, started at login
+from ~/.config/skornex/autostart.d/mic-cap), so turning it on or off never
+restarts the sound system (which cuts apps' sound); moving the cap line
+changes the running limiter live.
+
+Only use this microphone (off unless you turn it on): every other sound card
+is switched to a profile without its microphone (a webcam's to Off, the
+built-in card's to its speakers only), so when yours is unplugged or drops off
+USB, apps don't switch to another mic; they pick yours up again when it's
+back. It's done live, without restarting anything, so apps keep their sound;
+WirePlumber remembers the profiles. Turning it off puts the old profiles back
+(saved in sound.json).
+
+Push to talk (off unless you turn it on): the microphone stays muted except
+while you hold a key or mouse button, in every app and in games. That's
+skornex-ptt, started at login from ~/.config/skornex/autostart.d.
 """
 
 import array
+import grp
 import json
 import math
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 
 import gi
@@ -34,10 +51,23 @@ APP_ID = "dev.skornex.Sound"
 
 STATE = os.path.expanduser("~/.config/skornex/sound.json")
 CAP_NODE = "skornex_mic_capped"
-CAP_CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/90-skornex-mic-cap.conf")
+CAP_CONF = os.path.expanduser("~/.config/skornex/mic-cap.conf")
+CAP_AUTOSTART = os.path.expanduser("~/.config/skornex/autostart.d/mic-cap")
+CAP_PROCESS = r"pipewire -c .*/mic-cap\.conf"   # for pkill -f
+# Where an earlier version put the cap, inside PipeWire itself.
+OLD_CAP_CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/90-skornex-mic-cap.conf")
 CAP_TEMPLATE = """# Made by Sound settings (skornex-sound): caps how loud the microphone can get.
-# Delete this file and restart PipeWire to remove it.
+# Runs as its own process: pipewire -c ~/.config/skornex/mic-cap.conf
+context.properties = {{ log.level = 0 }}
+context.spa-libs = {{
+  audio.convert.* = audioconvert/libspa-audioconvert
+  support.*       = support/libspa-support
+}}
 context.modules = [
+  {{ name = libpipewire-module-rt args = {{ }} flags = [ ifexists nofail ] }}
+  {{ name = libpipewire-module-protocol-native }}
+  {{ name = libpipewire-module-client-node }}
+  {{ name = libpipewire-module-adapter }}
   {{ name = libpipewire-module-filter-chain
     args = {{
       node.description = "Microphone (volume capped)"
@@ -75,6 +105,14 @@ context.modules = [
   }}
 ]
 """
+# Made by an earlier version of "Only use this microphone"; removed when it's used.
+OLD_ONE_MIC_CONF = os.path.expanduser("~/.config/wireplumber/wireplumber.conf.d/90-skornex-one-mic.conf")
+PTT = os.path.expanduser("~/.local/bin/skornex-ptt")
+PTT_AUTOSTART = os.path.expanduser("~/.config/skornex/autostart.d/push-to-talk")
+INPUT_CODES = "/usr/include/linux/input-event-codes.h"
+# GTK's mouse button numbers -> Linux's names (4-7 are the scroll wheel).
+MOUSE_BUTTONS = {2: ("BTN_MIDDLE", "Middle mouse button"), 8: ("BTN_SIDE", "Mouse back button"),
+                 9: ("BTN_EXTRA", "Mouse forward button")}
 TEST_SECONDS = 5
 LOWEST_CAP = -40  # dB; 0 dB is as loud as a microphone can record
 
@@ -87,12 +125,16 @@ def cap_settings(cap):
     return {"boost": boost, "limit": cap + boost, "undo": 10 ** (-boost / 20)}
 
 
+DEFAULT_STATE = {"cap": False, "limit": -6.0, "mic": "", "only_mic": False, "mic_profiles": {},
+                 "ptt": False, "ptt_key": "KEY_CAPSLOCK", "ptt_name": "Caps Lock"}
+
+
 def load_state():
     try:
         with open(STATE) as f:
-            return {"cap": False, "limit": -6.0, "mic": "", **json.load(f)}
+            return {**DEFAULT_STATE, **json.load(f)}
     except (OSError, ValueError):
-        return {"cap": False, "limit": -6.0, "mic": ""}
+        return dict(DEFAULT_STATE)
 
 
 def save_state(state):
@@ -125,6 +167,175 @@ def percent(item):
     return 0
 
 
+def cap_filter_id():
+    """The PipeWire id of the running cap's filter node (where its limiter
+    settings live), or None when the cap isn't running."""
+    try:
+        objects = json.loads(subprocess.run(["pw-dump"], capture_output=True, text=True,
+                                            timeout=5).stdout or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    for o in objects:
+        props = (o.get("info") or {}).get("props") or {}
+        if o.get("type") == "PipeWire:Interface:Node" and props.get("node.name") == "capture." + CAP_NODE:
+            return o["id"]
+    return None
+
+
+def set_cap_live(limit):
+    """Changes the running limiter's settings. False if it isn't running."""
+    node = cap_filter_id()
+    if node is None:
+        return False
+    c = cap_settings(limit)
+    params = (f'"limiter:Input gain (dB)" {c["boost"]:.1f} "limiter:Limit (dB)" {c["limit"]:.1f} '
+              f'"left:Mult" {c["undo"]:.6f} "right:Mult" {c["undo"]:.6f}')
+    subprocess.run(["pw-cli", "set-param", str(node), "Props", f"{{ params = [ {params} ] }}"],
+                   capture_output=True)
+    return True
+
+
+def start_cap(now=True):
+    """(Re)starts the cap's own PipeWire process, now and at every login."""
+    if now:
+        subprocess.run(["pkill", "-f", CAP_PROCESS])
+    os.makedirs(os.path.dirname(CAP_AUTOSTART), exist_ok=True)
+    with open(CAP_AUTOSTART, "w") as f:
+        f.write("#!/bin/sh\n# Made by Sound settings: the microphone cap.\n"
+                f"exec pipewire -c {CAP_CONF} >> ~/.cache/skornex-mic-cap.log 2>&1\n")
+    os.chmod(CAP_AUTOSTART, 0o755)
+    if now:
+        subprocess.Popen(["sh", CAP_AUTOSTART], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def stop_cap():
+    subprocess.run(["pkill", "-f", CAP_PROCESS])
+    if os.path.exists(CAP_AUTOSTART):
+        os.remove(CAP_AUTOSTART)
+
+
+def without_mic(card):
+    """The profile for card that keeps what it plays through but has no
+    microphone ("output:analog-stereo+input:analog-stereo" -> "output:analog-
+    stereo"; a webcam's "input:analog-stereo" -> "off"), or None if its
+    current profile has no microphone anyway."""
+    active = card.get("active_profile") or ""
+    if "input:" not in active:
+        return None
+    outputs = "+".join(part for part in active.split("+") if part.startswith("output:"))
+    return outputs if outputs in (card.get("profiles") or {}) else "off"
+
+
+def only_use_mic(state, mic):
+    """Turns off every microphone but mic, or with mic None puts the other
+    cards' profiles back. Changes state["mic_profiles"]; the caller saves it."""
+    cards = {c["name"]: c for c in pactl_json("list", "cards")}
+    old = os.path.exists(OLD_ONE_MIC_CONF)
+    if old:
+        os.remove(OLD_ONE_MIC_CONF)
+    if mic is None:
+        for name, profile in state.get("mic_profiles", {}).items():
+            if name in cards:
+                pactl("set-card-profile", name, profile)
+        if old:
+            # The earlier version's mics stay off until their card is set up
+            # again: switching its profile away and back does that, without
+            # restarting WirePlumber (which cuts apps' sound).
+            live = {src.get("properties", {}).get("device.name") for src in pactl_json("list", "sources")}
+            for name, card in cards.items():
+                profile = without_mic(card)
+                if profile and name not in live and name not in state.get("mic_profiles", {}):
+                    pactl("set-card-profile", name, profile)
+                    pactl("set-card-profile", name, card["active_profile"])
+        state["mic_profiles"] = {}
+        return
+    keep = next((src.get("properties", {}).get("device.name") for src in pactl_json("list", "sources")
+                 if src["name"] == mic), None)
+    for name, card in cards.items():
+        if name == keep or not name.startswith("alsa_card."):   # Bluetooth switches by itself
+            continue
+        profile = without_mic(card)
+        if profile:
+            state.setdefault("mic_profiles", {}).setdefault(name, card["active_profile"])
+            pactl("set-card-profile", name, profile)
+
+
+def key_names():
+    """{58: "KEY_CAPSLOCK", ...}: Linux's key names, which skornex-ptt takes."""
+    names = {}
+    try:
+        with open(INPUT_CODES) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3 and parts[0] == "#define" and parts[1].startswith(("KEY_", "BTN_")):
+                    try:
+                        names.setdefault(int(parts[2], 0), parts[1])  # the first name, not aliases
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+    return names
+
+
+def key_label(key, keyval=None):
+    """The name shown for the push-to-talk key, like "Caps Lock": what the
+    key types, else Linux's name for it (KEY_CAPSLOCK -> "Caps Lock")."""
+    name = Gdk.keyval_name(Gdk.keyval_to_upper(keyval)) if keyval else None
+    if name and name != "VoidSymbol" and not name.startswith("0x"):
+        return name.replace("_", " ")
+    known = {"KEY_CAPSLOCK": "Caps Lock", "KEY_SCROLLLOCK": "Scroll Lock", "KEY_NUMLOCK": "Num Lock",
+             "KEY_LEFTCTRL": "Left Ctrl", "KEY_RIGHTCTRL": "Right Ctrl", "KEY_LEFTALT": "Left Alt",
+             "KEY_RIGHTALT": "Right Alt", "KEY_LEFTSHIFT": "Left Shift", "KEY_RIGHTSHIFT": "Right Shift",
+             "KEY_LEFTMETA": "Windows key", "KEY_RIGHTMETA": "Right Windows key"}
+    return known.get(key) or key.split("_", 1)[-1].replace("_", " ").title()
+
+
+def ptt_problem():
+    """What still stands in the way of push to talk, or None."""
+    import importlib.util
+    if importlib.util.find_spec("evdev") is None:
+        return "Push to talk needs python-evdev. Run: sudo pacman -S python-evdev"
+    user = os.environ.get("USER") or os.getlogin()
+    try:
+        group = grp.getgrnam("input")
+    except KeyError:
+        return "This PC has no input group."
+    if user not in group.gr_mem:
+        return "Your account needs to be in the input group (it asks for your password)."
+    if group.gr_gid not in os.getgroups():
+        return "Log out and back in to finish turning it on."
+    return None
+
+
+def set_ptt(on):
+    """Starts or stops skornex-ptt now and at login. Stopping it unmutes the mic."""
+    subprocess.run(["pkill", "-f", r"\.local/bin/skornex-ptt$"])
+    if not on:
+        if os.path.exists(PTT_AUTOSTART):
+            os.remove(PTT_AUTOSTART)
+        # skornex-ptt unmutes what it muted, but a mic that was unplugged then
+        # comes back muted later: so every microphone is unmuted here too.
+        for mic in pactl_json("list", "sources"):
+            if not mic["name"].endswith(".monitor"):
+                pactl("set-source-mute", mic["name"], "0")
+        return
+    os.makedirs(os.path.dirname(PTT_AUTOSTART), exist_ok=True)
+    with open(PTT_AUTOSTART, "w") as f:
+        f.write("#!/bin/sh\n# Made by Sound settings: push to talk (skornex-ptt).\n"
+                f"exec {PTT} >> ~/.cache/skornex-ptt.log 2>&1\n")
+    os.chmod(PTT_AUTOSTART, 0o755)
+    user = os.environ.get("USER") or os.getlogin()
+    try:
+        in_group = user in grp.getgrnam("input").gr_mem
+    except KeyError:
+        in_group = True
+    if not in_group and shutil.which("pkexec"):
+        subprocess.run(["pkexec", "usermod", "-aG", "input", user])
+    subprocess.Popen(["sh", PTT_AUTOSTART], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def heading(text):
     label = Gtk.Label(xalign=0)
     label.set_markup(f"<b>{GLib.markup_escape_text(text)}</b>")
@@ -137,6 +348,7 @@ class Page(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.set_border_width(24)
         self.state = load_state()
+        self.old_cap_loaded = False
         self.loading = False
         self.dragging = False
         title = Gtk.Label(xalign=0)
@@ -158,6 +370,18 @@ class Page(Gtk.Box):
         self.pack_start(self.in_combo, False, False, 0)
         self.in_volume, self.in_mute = self.volume_row("source", self.mic, 150)
         self.in_volume.add_mark(100, Gtk.PositionType.BOTTOM, "100%")
+
+        only_row = Gtk.Box(spacing=12)
+        only_row.pack_start(Gtk.Label(label="Only use this microphone", xalign=0), False, False, 0)
+        self.only_switch = Gtk.Switch(active=self.state["only_mic"], valign=Gtk.Align.CENTER)
+        self.only_switch.connect("notify::active", lambda w, _p: self.set_only_mic(w.get_active()))
+        only_row.pack_start(self.only_switch, False, False, 0)
+        self.pack_start(only_row, False, False, 0)
+        only_about = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+        only_about.set_text("Turns your other microphones off (like the webcam's), so apps never switch "
+                            "to them when this one is unplugged. They pick it up again when it's back.")
+        only_about.set_opacity(0.7)
+        self.pack_start(only_about, False, False, 0)
 
         cap_row = Gtk.Box(spacing=12)
         cap_row.pack_start(Gtk.Label(label="Cap how loud you can get", xalign=0), False, False, 0)
@@ -181,7 +405,7 @@ class Page(Gtk.Box):
         self.meter.connect("button-press-event", self.drag_cap)
         self.meter.connect("motion-notify-event", self.drag_cap)
         self.meter.connect("button-release-event", lambda *_: self.cap_switch.get_active()
-                           and GLib.idle_add(self.apply_cap) and False)
+                           and GLib.idle_add(self.apply_cap, True) and False)
         self.meter.set_hexpand(True)
         self.meter.set_valign(Gtk.Align.CENTER)
         self.meter.connect("draw", self.draw_meter)
@@ -190,6 +414,32 @@ class Page(Gtk.Box):
         self.record_button.connect("clicked", lambda _b: self.record_test())
         test_row.pack_start(self.record_button, False, False, 0)
         self.pack_start(test_row, False, False, 0)
+
+        self.pack_start(heading("Push to talk"), False, False, 0)
+        grid = Gtk.Grid(row_spacing=10, column_spacing=24)
+        self.pack_start(grid, False, False, 0)
+        grid.attach(Gtk.Label(label="Mute the mic until you hold a key", xalign=0), 0, 0, 1, 1)
+        ptt = Gtk.Switch(active=self.state["ptt"], halign=Gtk.Align.START)
+        ptt.connect("notify::active", lambda w, _p: self.set_ptt(ptt=w.get_active()))
+        grid.attach(ptt, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Key to hold", xalign=0), 0, 1, 1, 1)
+        self.ptt_key = Gtk.Button(label=self.state["ptt_name"], halign=Gtk.Align.START)
+        self.ptt_key.connect("clicked", lambda _b: self.pick_key())
+        self.ptt_key.connect("key-press-event", self.on_pick_key)
+        self.ptt_key.connect("button-press-event", self.on_pick_button)
+        grid.attach(self.ptt_key, 1, 1, 1, 1)
+        self.picking = False
+        about = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+        about.set_text("Works in every app, even in games. In TeamSpeak and Discord, use Voice "
+                       "Activation instead of their own push to talk. To change the key, click it, "
+                       "then press a key or mouse side button. The key keeps its usual job: Caps "
+                       "Lock still switches capitals.")
+        about.set_opacity(0.7)
+        self.pack_start(about, False, False, 0)
+        self.ptt_status = Gtk.Label(xalign=0, wrap=True, max_width_chars=70)
+        self.ptt_status.set_no_show_all(True)
+        self.pack_start(self.ptt_status, False, False, 0)
+        self.show_ptt_status()
 
         self.pack_start(heading("Apps"), False, False, 0)
         self.apps = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -203,6 +453,56 @@ class Page(Gtk.Box):
         self.connect("map", lambda *_: self.start_meter())
         self.connect("unmap", lambda *_: self.stop_meter())
         self.connect("destroy", lambda *_: (GLib.source_remove(self.timer), self.stop_meter()))
+
+    # Push to talk. Picking the key: click the button, then press a key or a
+    # mouse button. Escape cancels.
+    def set_ptt(self, ptt=None, key=None, name=None):
+        if ptt is not None:
+            self.state["ptt"] = ptt
+        if key:
+            self.state["ptt_key"], self.state["ptt_name"] = key, name
+        save_state(self.state)
+        if ptt is not None or self.state["ptt"]:
+            set_ptt(self.state["ptt"])   # a new key needs a restart
+        self.show_ptt_status()
+        GLib.timeout_add(500, lambda: self.load() and False)   # the mic's mute button
+
+    def show_ptt_status(self):
+        problem = ptt_problem() if self.state["ptt"] else None
+        self.ptt_status.set_text(problem or "")
+        self.ptt_status.set_visible(bool(problem))
+
+    def pick_key(self):
+        if self.picking:
+            return
+        self.picking = True
+        self.ptt_key.set_label("Press a key or mouse button… (Esc cancels)")
+        self.ptt_key.grab_focus()
+
+    def done_picking(self, key=None, name=None):
+        self.picking = False
+        if key:
+            self.set_ptt(key=key, name=name)
+        self.ptt_key.set_label(self.state["ptt_name"])
+
+    def on_pick_key(self, _w, event):
+        if not self.picking:
+            return False
+        if event.keyval == Gdk.KEY_Escape:
+            self.done_picking()
+            return True
+        key = key_names().get(event.hardware_keycode - 8)   # X keycodes are Linux's + 8
+        if key:
+            self.done_picking(key, key_label(key, event.keyval))
+        return True
+
+    def on_pick_button(self, _w, event):
+        if not self.picking or event.type != Gdk.EventType.BUTTON_PRESS:
+            return False
+        if event.button in MOUSE_BUTTONS:
+            self.done_picking(*MOUSE_BUTTONS[event.button])
+            return True
+        return False   # a left click on the button just keeps waiting
 
     def volume_row(self, kind, target, top):
         row = Gtk.Box(spacing=8)
@@ -259,9 +559,21 @@ class Page(Gtk.Box):
         self.app_ids = None
         self.refresh_apps()
 
+    def set_only_mic(self, on):
+        if self.loading:
+            return
+        self.state["only_mic"] = on
+        if on:
+            self.state["mic"] = self.mic()
+        only_use_mic(self.state, self.state["mic"] if on else None)
+        save_state(self.state)
+        GLib.timeout_add(800, lambda: (self.load(), self.start_meter(), False)[-1])
+
     def choose_mic(self, name):
         self.state["mic"] = name
         save_state(self.state)
+        if self.state["only_mic"]:
+            only_use_mic(self.state, name)
         if self.state["cap"]:
             self.apply_cap()  # point the cap at the new microphone
         else:
@@ -271,33 +583,51 @@ class Page(Gtk.Box):
 
     # --- The cap (a limiter in PipeWire) ---
 
-    def apply_cap(self):
+    def apply_cap(self, level_only=False):
+        """Turns the cap on or off, or (level_only, after dragging the cap
+        line) just changes its level. Nothing else in the sound system is
+        restarted, so apps keep their sound."""
         self.state["cap"] = self.cap_switch.get_active()
         self.state["limit"] = self.cap_db
-        if self.state["cap"]:
+        if self.state["cap"] and not level_only:
             self.state["mic"] = self.mic()
         save_state(self.state)
-        if self.state["cap"]:
-            if not os.path.exists("/usr/lib/ladspa/fast_lookahead_limiter_1913.so"):
-                self.cap_note.set_text("The cap needs swh-plugins. Run: sudo pacman -S swh-plugins")
-                self.cap_note.show()
-                return
-            os.makedirs(os.path.dirname(CAP_CONF), exist_ok=True)
-            with open(CAP_CONF, "w") as f:
-                f.write(CAP_TEMPLATE.format(node=CAP_NODE, mic=self.state["mic"],
-                                            **cap_settings(self.state["limit"])))
-        else:
-            try:
-                os.remove(CAP_CONF)
-            except FileNotFoundError:
-                pass
+        if os.path.exists(OLD_CAP_CONF):
+            os.remove(OLD_CAP_CONF)   # from an earlier version; gone after the next login
+            # Still running inside PipeWire if its microphone is there but
+            # no cap process of ours is.
+            ours = subprocess.run(["pgrep", "-f", CAP_PROCESS], capture_output=True).returncode == 0
+            self.old_cap_loaded = not ours and CAP_NODE in pactl("list", "short", "sources")
+        if not self.state["cap"]:
+            stop_cap()
+            if self.state["mic"]:
+                pactl("set-default-source", self.state["mic"])
+            GLib.timeout_add(500, lambda: (self.load(), self.start_meter(), False)[-1])
+            return False
+        if not os.path.exists("/usr/lib/ladspa/fast_lookahead_limiter_1913.so"):
+            self.cap_note.set_text("The cap needs swh-plugins. Run: sudo pacman -S swh-plugins")
+            self.cap_note.show()
+            return False
+        os.makedirs(os.path.dirname(CAP_CONF), exist_ok=True)
+        with open(CAP_CONF, "w") as f:   # also what it starts with at the next login
+            f.write(CAP_TEMPLATE.format(node=CAP_NODE, mic=self.state["mic"],
+                                        **cap_settings(self.state["limit"])))
+        if level_only and set_cap_live(self.state["limit"]):
+            return False
         self.stop_meter()
         self.set_sensitive(False)
-        subprocess.run(["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"])
-        GLib.timeout_add_seconds(3, self.after_restart)
+        if self.old_cap_loaded:
+            # An earlier version's cap is still running inside PipeWire until
+            # the next login; starting another now would make two. So only
+            # set it up for the next login, and use the running one until then.
+            start_cap(now=False)
+        else:
+            start_cap()
+        GLib.timeout_add(500, self.after_restart)
+        return False
 
     def after_restart(self, tries=0):
-        """Waits for the sound system to come back, then picks the microphone."""
+        """Waits for the cap's microphone to appear, then makes it the default."""
         names = [d["name"] for d in pactl_json("list", "sources")]
         want = CAP_NODE if self.state["cap"] else self.state["mic"]
         if want not in names and tries < 20:

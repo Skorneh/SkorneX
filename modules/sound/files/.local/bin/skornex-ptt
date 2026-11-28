@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""skornex-ptt: hold a key to talk, in every app.
+
+Push to talk the usual way on a Wayland desktop: your microphone stays muted,
+and it's unmuted only while you hold the push-to-talk key (Caps Lock unless
+you picked another in Sound settings), like a hardware talk button. Set
+TeamSpeak and Discord to Voice Activation (not their own push to talk): apps
+only see their own keys while their window is focused, so in a game their
+push to talk does nothing, but the mute works everywhere.
+
+The key keeps its usual job too: Caps Lock still switches capitals, like
+TeamSpeak with Caps Lock on Windows. It's read straight from the keyboard
+(/dev/input), which needs your account in the input group. Keyboards and mice
+plugged in later are picked up within a few seconds. The mic is unmuted again
+when this stops. Logged in ~/.cache/skornex-ptt.log.
+"""
+
+import json
+import os
+import select
+import signal
+import subprocess
+import sys
+import time
+
+import evdev
+
+SETTINGS = os.path.expanduser("~/.config/skornex/sound.json")   # Sound settings
+
+
+def log(text):
+    print(f"{time.strftime('%H:%M:%S')} {text}", file=sys.stderr, flush=True)
+
+
+def session_alive():
+    pid = os.environ.get("LABWC_PID")
+    try:
+        return not pid or os.kill(int(pid), 0) is None
+    except (OSError, ValueError):
+        return False
+
+
+def talk_key():
+    try:
+        with open(SETTINGS) as f:
+            name = json.load(f).get("ptt_key") or "KEY_CAPSLOCK"
+    except (OSError, ValueError):
+        name = "KEY_CAPSLOCK"
+    return name, evdev.ecodes.ecodes.get(name, evdev.ecodes.KEY_CAPSLOCK)
+
+
+# Every mic this has muted, by name. PipeWire remembers a mic's mute, so one
+# that's unplugged (or drops off USB) while muted comes back muted: so
+# unmuting covers all of them, not only today's default mic.
+muted = set()
+
+
+def mute(on):
+    """Mutes the default mic (the one picked in Sound settings), or unmutes
+    it and any other mic this muted."""
+    try:
+        mic = subprocess.run(["pactl", "get-default-source"], capture_output=True, text=True,
+                             timeout=3).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        mic = ""
+    if on and mic:
+        muted.add(mic)
+    for name in ([mic] if on else muted | {mic}):
+        if name:
+            subprocess.run(["pactl", "set-source-mute", name, "1" if on else "0"],
+                           stderr=subprocess.DEVNULL)
+
+
+def devices_with(code):
+    """Keyboards and mice that have the key (a mouse side button can be it)."""
+    found = {}
+    for path in evdev.list_devices():
+        try:
+            dev = evdev.InputDevice(path)
+        except OSError as e:
+            if e.errno == 13:
+                log("Can't read the keyboard: your account needs the input group "
+                    "(turn push to talk on in Sound settings, then log out and back in).")
+            continue
+        if code in dev.capabilities().get(evdev.ecodes.EV_KEY, []) and "virtual" not in dev.name.lower():
+            found[path] = dev
+        else:
+            dev.close()
+    return found
+
+
+def main():
+    name, code = talk_key()
+    mute(True)
+    log(f"started: the mic is muted except while {name} is held")
+    # Stopped by Sound settings or at logout: still unmute on the way out.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+    devices, held, last_scan, seen = {}, set(), 0, None
+    try:
+        while session_alive():
+            if time.time() - last_scan > 5:   # keyboards plugged in or out
+                last_scan = time.time()
+                now = set(evdev.list_devices())
+                if now != seen:
+                    seen = now
+                    for dev in devices.values():
+                        dev.close()
+                    devices = devices_with(code)
+                    held.clear()
+                    log("listening on: " + (", ".join(d.name for d in devices.values()) or "nothing yet"))
+            ready, _, _ = select.select(list(devices.values()), [], [], 1)
+            for dev in ready:
+                try:
+                    events = list(dev.read())
+                except OSError:   # unplugged
+                    devices.pop(dev.path, None)
+                    held.discard(dev.path)
+                    last_scan = 0
+                    continue
+                for e in events:
+                    if e.type != evdev.ecodes.EV_KEY or e.code != code or e.value == 2:
+                        continue   # 2 is key repeat
+                    was = bool(held)
+                    (held.add if e.value else held.discard)(dev.path)
+                    if bool(held) != was:
+                        mute(not held)
+    finally:
+        mute(False)   # don't leave the mic muted after push to talk is off
+        log("stopped; the mic is unmuted")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
