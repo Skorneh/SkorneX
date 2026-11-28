@@ -212,7 +212,7 @@ remove one without touching the others.
 | Module | Search for | What it does |
 |---|---|---|
 | `display` | Display settings | Resolution, refresh rate, scale and orientation apply as soon as you pick them; drag the monitors into place (they snap edge to edge, no gaps) and press Apply; Identify shows each monitor's number on it; pick the main display for the taskbar, desktop icons and games; Night light (warmer colors from and until the hours you pick, with a strength slider). Asks "Keep these display settings?" and goes back after 15 seconds if you can't see anything. |
-| `sound` | Sound settings | Speakers or headphones and their volume; your microphone with a boost up to 150%, a cap on how loud you can get (a limiter, like OBS's: drag the white line on the meter; peaks never go past it), a live level meter and a record-and-play-back test; each app's volume. |
+| `sound` | Sound settings | Speakers or headphones and their volume; your microphone with a boost up to 150%, a cap on how loud you can get (a limiter, like OBS's: drag the white line on the meter; peaks never go past it), a live level meter and a record-and-play-back test; "Only use this microphone" (turns the other mics off, so apps never fall back to the webcam's mic when yours is unplugged, and pick yours up again when it's back); each app's volume; push to talk (off unless you turn it on: the mic stays muted except while you hold Caps Lock or a key or mouse button you pick, in every app and in games; set TeamSpeak and Discord to Voice Activation). |
 | `power` | Power settings | Lock the screen, turn it off and go to sleep after however long you pick (or never); lock when the PC sleeps; what the power button does (power menu, sleep, shut down, nothing). On laptops, separate times for plugged in and on battery (switching by itself when you plug in or unplug), and what closing the lid does (sleep, lock, nothing), also for each. |
 | `mouse` | Mouse settings | Pointer speed, acceleration, scroll speed and direction, swap buttons, double-click speed, pointer size, touchpad tap-to-click. |
 | `keyboard` | Keyboard settings | Keyboard layouts (languages) and the keys that switch them, key repeat, Num Lock. |
@@ -224,6 +224,9 @@ remove one without touching the others.
 | `updates` | Updates | What's waiting to be updated (system, AUR apps, SkorneX itself), one button to install, and an optional reminder at login. |
 
 **Settings** (search "Settings") shows every module you have in one window.
+Its search box (Ctrl+F) finds any setting across all modules, like "push to
+talk" or "refresh rate", and jumps to it. A module's `.conf` can list extra
+search words in `Keywords=`.
 Its last page, **Add or remove settings**, turns modules on and off. From
 Terminal it's `skornex-module` (list), `skornex-module add sound mouse`, or
 `skornex-module remove display`. Removing a module keeps the settings it

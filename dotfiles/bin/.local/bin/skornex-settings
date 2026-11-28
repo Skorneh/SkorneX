@@ -9,6 +9,11 @@ on its own, so you can install only the ones you want, or change one without
 touching the others. Settings finds the ones you have in
 ~/.local/share/skornex/settings/*.conf and shows them as pages. The last page,
 "Add or remove settings", installs and removes modules (skornex-module).
+
+The search box above the list finds a setting in any module: by the module's
+name, its description and the Keywords= in its .conf file, and by the
+headings and labels on its page. Picking a result opens that page and
+scrolls to the setting. Ctrl+F jumps to the search box.
 """
 
 import configparser
@@ -16,13 +21,15 @@ import glob
 import importlib.machinery
 import importlib.util
 import os
+import re
 import shutil
 import sys
 
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "dev.skornex.Settings"
 HOME = os.path.expanduser("~")
@@ -59,6 +66,56 @@ def available_modules():
             info["installed"] = os.path.exists(os.path.join(REGISTRY, info["name"] + ".conf"))
             mods.append(info)
     return mods
+
+
+# Headings and labels written in a module's code: heading("Push to talk"),
+# Gtk.Label(label="Key to hold"). Short ones only; long ones are explanations.
+LABEL_TEXT = re.compile(r'''(?:heading\(|label=)"([^"\\{}]{3,60})"''')
+CSS = b"""
+.search-hit { background-color: alpha(@theme_selected_bg_color, 0.45); border-radius: 4px; }
+"""
+
+
+def search_index(mods):
+    """[(kind, text, module info)]: one "module" entry per module (matched
+    on its title, keywords and description) and one "label" entry per
+    heading or label on its page."""
+    index = []
+    for info in mods:
+        index.append(("module", info["title"], info))
+        path = shutil.which(info["program"]) or os.path.join(BIN, info["program"])
+        try:
+            with open(path) as f:
+                labels = LABEL_TEXT.findall(f.read())
+        except OSError:
+            labels = []
+        seen = {info["title"].lower()}
+        for text in labels:
+            if text.lower() not in seen:
+                seen.add(text.lower())
+                index.append(("label", text, info))
+    return index
+
+
+def search(index, query):
+    words = query.lower().split()
+    if not words:
+        return []
+    found = []
+    for kind, text, info in index:
+        if kind == "module":
+            haystack = " ".join((info["title"], info.get("keywords", ""), info.get("description", "")))
+        else:
+            haystack = text + " " + info["title"]
+        haystack = haystack.lower()
+        if all(w in haystack for w in words):
+            # Best first: a title or label that starts with what you typed,
+            # then ones that contain it, then keyword and description matches.
+            q = query.lower().strip()
+            rank = 0 if text.lower().startswith(q) else 1 if q in text.lower() else 2
+            found.append((rank, kind != "module", kind, text, info))
+    found.sort(key=lambda r: (r[0], r[1]))
+    return [(kind, text, info) for _r, _k, kind, text, info in found[:40]]
 
 
 def load_page(info):
@@ -143,12 +200,29 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.set_default_size(980, 680)
         self.set_icon_name("preferences-system")
         paned = Gtk.Box()
+        css = Gtk.CssProvider()
+        css.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left.set_size_request(240, -1)
+        self.search_entry = Gtk.SearchEntry(placeholder_text="Find a setting", margin=8)
+        self.search_entry.connect("search-changed", lambda _e: self.show_results())
+        self.search_entry.connect("activate", lambda _e: self.open_first_result())
+        self.search_entry.connect("stop-search", lambda e: e.set_text(""))
+        left.pack_start(self.search_entry, False, False, 0)
         self.sidebar = Gtk.ListBox()
-        self.sidebar.set_size_request(220, -1)
         self.sidebar.connect("row-selected", self.on_select)
-        side = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        side.add(self.sidebar)
-        paned.pack_start(side, False, False, 0)
+        self.results = Gtk.ListBox()
+        self.results.set_activate_on_single_click(True)
+        self.results.connect("row-activated", lambda _l, row: self.open_result(row))
+        self.left_stack = Gtk.Stack()
+        for name, box in (("list", self.sidebar), ("results", self.results)):
+            scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+            scroller.add(box)
+            self.left_stack.add_named(scroller, name)
+        left.pack_start(self.left_stack, True, True, 0)
+        paned.pack_start(left, False, False, 0)
         paned.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         paned.pack_start(self.stack, True, True, 0)
@@ -165,6 +239,7 @@ class SettingsWindow(Gtk.ApplicationWindow):
                 self.stack.remove(page)
                 del self.pages[name]
         self.mods = {m["name"]: m for m in installed_modules()}
+        self.index = search_index(self.mods.values())
         for info in list(self.mods.values()) + [{"name": "_manage", "title": "Add or remove settings",
                                                   "icon": "list-add"}]:
             row = Gtk.ListBoxRow()
@@ -177,6 +252,82 @@ class SettingsWindow(Gtk.ApplicationWindow):
             self.sidebar.add(row)
         self.sidebar.show_all()
         self.select(current if current in self.mods else None)
+
+    # --- Search -------------------------------------------------------------
+
+    def show_results(self):
+        query = self.search_entry.get_text().strip()
+        for row in self.results.get_children():
+            row.destroy()
+        if not query:
+            self.left_stack.set_visible_child_name("list")
+            return
+        found = search(self.index, query)
+        for kind, text, info in found:
+            row = Gtk.ListBoxRow()
+            row.result = (kind, text, info)
+            box = Gtk.Box(spacing=10, margin=8)
+            box.pack_start(Gtk.Image.new_from_icon_name(info.get("icon", "preferences-system"),
+                                                        Gtk.IconSize.LARGE_TOOLBAR), False, False, 0)
+            label = Gtk.Label(xalign=0, wrap=True)
+            if kind == "module":
+                label.set_markup(f"{GLib.markup_escape_text(info['title'])}\n<span alpha='60%' size='small'>"
+                                 f"{GLib.markup_escape_text(info.get('description', ''))}</span>")
+            else:
+                label.set_markup(f"{GLib.markup_escape_text(text)}\n<span alpha='60%' size='small'>"
+                                 f"{GLib.markup_escape_text(info['title'])}</span>")
+            box.pack_start(label, True, True, 0)
+            row.add(box)
+            self.results.add(row)
+        if not found:
+            row = Gtk.ListBoxRow(selectable=False, activatable=False)
+            row.add(Gtk.Label(label="Nothing found", margin=12, opacity=0.6))
+            self.results.add(row)
+        self.results.show_all()
+        self.left_stack.set_visible_child_name("results")
+
+    def open_first_result(self):
+        rows = [r for r in self.results.get_children() if hasattr(r, "result")]
+        if rows:
+            self.open_result(rows[0])
+
+    def open_result(self, row):
+        kind, text, info = row.result
+        self.search_entry.set_text("")   # back to the list, with the page picked
+        self.select(info["name"])
+        if kind == "label":
+            # After the page has been built and laid out.
+            GLib.timeout_add(150, self.show_setting, info["name"], text)
+
+    def show_setting(self, name, text):
+        """Scrolls the page to the label or button that says text and
+        highlights it for a moment."""
+        page = self.pages.get(name)
+        widget = self.find_text(page, text) if page else None
+        if not widget:
+            return False
+        scroller = page if isinstance(page, Gtk.ScrolledWindow) else None
+        if scroller:
+            content = scroller.get_child()
+            point = widget.translate_coordinates(content, 0, 0)
+            if point:
+                adj = scroller.get_vadjustment()
+                adj.set_value(max(0, min(point[1] - 60, adj.get_upper() - adj.get_page_size())))
+        target = widget.get_parent() if isinstance(widget.get_parent(), Gtk.Button) else widget
+        context = target.get_style_context()
+        context.add_class("search-hit")
+        GLib.timeout_add(1800, lambda: context.remove_class("search-hit") and False)
+        return False
+
+    def find_text(self, widget, text):
+        if isinstance(widget, Gtk.Label) and widget.get_text().strip() == text and widget.get_mapped():
+            return widget
+        if isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                hit = self.find_text(child, text)
+                if hit:
+                    return hit
+        return None
 
     def current(self):
         row = self.sidebar.get_selected_row()
@@ -234,6 +385,11 @@ class App(Gtk.Application):
             close.connect("activate", lambda *_: window.close())
             window.add_action(close)
             self.set_accels_for_action("win.close", ["<Ctrl>w"])
+            # Ctrl+F: find a setting.
+            find = Gio.SimpleAction.new("find", None)
+            find.connect("activate", lambda *_: window.search_entry.grab_focus())
+            window.add_action(find)
+            self.set_accels_for_action("win.find", ["<Ctrl>f"])
         window.show_all()
         if args:
             window.select(args[0])
